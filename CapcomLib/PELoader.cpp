@@ -19,7 +19,7 @@ PELoader::~PELoader()
 {
 }
 
-VOID PELoader::LoadFromFile(const wstring& filename)
+VOID PELoader::LoadFromFile(const wstring& Filename)
 {
 	unique_ptr<vector<char>> buf;
 	ifstream fstr;
@@ -29,9 +29,9 @@ VOID PELoader::LoadFromFile(const wstring& filename)
 	try
 	{
 		// Open with binary with the cursor at the end (ATE) of the file
-		fstr.open(filename, ios::binary | ios::ate);
+		fstr.open(Filename, ios::binary | ios::ate);
 
-		// Determine how big the stream is (this is the filesize since we started at the end!)
+		// Determine how far the stream cursor is (this is the filesize since we started at the end!)
 		auto pos = fstr.tellg();
 
 		// Allocate vector<char> for the file contents
@@ -45,7 +45,7 @@ VOID PELoader::LoadFromFile(const wstring& filename)
 	catch (const ifstream::failure& e)
 	{
 		UNREFERENCED_PARAMETER(e);
-		ThrowLdrError("Failed to read file '%ls': %s", filename.c_str(), stdstrerror(errno).c_str());
+		ThrowLdrError("Failed to read file '%ls': %s", Filename.c_str(), stdstrerror(errno).c_str());
 	}
 
 	// Everything is good, change ownership of the file memory to the PELoader object

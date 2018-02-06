@@ -8,11 +8,16 @@
 class PELoader
 {
 public:
+	// Load a PE file from the path specified by Filename
 	PELoader(const std::wstring& Filename);
+
+	// If PE file already exists in memory, load by passing the address of the base of the image
 	PELoader(SIZE_T ImageBase);
+
 	~PELoader();
 
-	VOID LoadFromFile(const std::wstring& filename);
+	// Loads the PE file from a file given by Filename
+	VOID LoadFromFile(const std::wstring& Filename);
 
 	// True if the PE file exists in memory
 	VOID CheckValidBase();
