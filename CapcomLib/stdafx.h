@@ -8,7 +8,6 @@
 #include "targetver.h"
 
 #include <Windows.h>
-
 #include <stdio.h>
 #include <tchar.h>
 
@@ -16,4 +15,11 @@
 #include <Shlwapi.h>
 #include <ntsecapi.h>
 #include <iostream>
+
+#include <string>
+#include <fstream>
+#include <streambuf>
+#include <sstream>
+#include <memory>
+#include <vector>
 //#include <Winternl.h>
