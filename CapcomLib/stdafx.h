@@ -13,7 +13,6 @@
 
 #include <intrin.h>
 #include <Shlwapi.h>
-#include <ntsecapi.h>
 #include <iostream>
 
 #include <string>
@@ -22,4 +21,4 @@
 #include <sstream>
 #include <memory>
 #include <vector>
-//#include <Winternl.h>
+#include <winternl.h>

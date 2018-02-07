@@ -1,10 +1,12 @@
 #pragma once
 
 #include "stdafx.h"
+#include "Win32Helpers.h"
+#include "Helpers.h"
 
-// A reflexive PE loader
-// Provides general interfaces for interacting with PE files in memory
-// Based off of ReactOS code and reinterpreted for C++ :)
+// A very simple reflexive PE loader
+// Doesn't do anything fancy (.NET, SxS, AppCompat, or APISet)
+// Based off of some ReactOS code and reinterpreted for C++ :)
 class PELoader
 {
 public:
@@ -17,23 +19,39 @@ public:
 	~PELoader();
 
 	// Loads the PE file from a file given by Filename
-	VOID LoadFromFile(const std::wstring& Filename);
+	VOID DoLoadFromFile(const std::wstring& Filename);
 
 	// True if the PE file exists in memory
-	VOID CheckValidBase();
+	VOID DoValidBaseCheck();
+
+	// Relocates PE file (for dll-type files)
+	VOID DoRelocateImage();
+
+	// Returns true if the NtHeaders have the given flag
+	BOOL HasNtHeaderFlag(WORD Flag);
 
 	// Gets the base of the module
-	PVOID GetPEBase();
+	PVOID GetLoadedBase();
+
+	// Gets the image base of the module from the PE
+	LONGLONG GetPEImageBase();
+
+	// Gets the data directory entry in the NtHeaders
+	PIMAGE_DATA_DIRECTORY GetPEDataDirectoryEntry(WORD DirectoryEnum);
 
 	// Verifies and returns PIMAGE_NT_HEADERS for PE file
-	PIMAGE_NT_HEADERS GetNTHeaders();
+	PIMAGE_NT_HEADERS GetNtHeaders();
 
 private:
-	// Pointer to the base of the module loaded in memory if the file already exists in memory
-	PBYTE m_InMemoryBase = NULL;
 
-	// When loaded from a file, the memory of the file is stored here
-	std::unique_ptr<std::vector<char>> m_Image;
+	// Handle to the underlying PE file
+	unique_handle m_FileHandle;
+
+	// Handle to the underlying file mapping
+	unique_handle m_FileMapping;
+
+	// Pointer to the base of the module loaded in memory if the file already exists in memory
+	PVOID m_InMemoryBase = NULL;
 
 	// Throws a C-style formatted std::runtime_error
 	template<typename ... Args>
@@ -47,6 +65,12 @@ private:
 
 		throw runtime_error(outMsg.c_str());
 	}
+
+	// Throws the error message for GetLastError. Includes the given funcname in the message.
+	VOID ThrowLdrLastError(const std::wstring& funcname);
+
+	// Ensures a valid handle, otherwise throws a loader error for the given funcname
+	VOID ThrowLdrLastErrorOnInvalidHandle(const std::wstring& funcname, HANDLE handle);
 
 	// Pointer type conversion with no offset
 	template<typename TargetType>

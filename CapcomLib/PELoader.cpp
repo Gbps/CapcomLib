@@ -7,7 +7,7 @@ using namespace std;
 
 PELoader::PELoader(const std::wstring& Filename)
 {
-	LoadFromFile(Filename);
+	DoLoadFromFile(Filename);
 }
 
 PELoader::PELoader(SIZE_T ImageBase)
@@ -18,72 +18,136 @@ PELoader::PELoader(SIZE_T ImageBase)
 PELoader::~PELoader()
 {
 }
+//
+//VOID PELoader::DoLoadFromFile(const wstring& Filename)
+//{
+//	unique_ptr<vector<char>> buf;
+//	ifstream fstr;
+//	
+//	// Enable exceptions on i/o error
+//	fstr.exceptions(ifstream::failbit | ifstream::badbit);
+//	try
+//	{
+//		// Open with binary with the cursor at the end (ATE) of the file
+//		fstr.open(Filename, ios::binary | ios::ate);
+//
+//		// Determine how far the stream cursor is (this is the filesize since we started at the end!)
+//		auto pos = fstr.tellg();
+//
+//		// Allocate vector<char> for the file contents
+//		buf = make_unique<vector<char>>(pos);
+//
+//		// Seek to beginning and read the entire file
+//		fstr.seekg(0, ios::beg);
+//		fstr.read((*buf).data(), pos);
+//		fstr.close();
+//	}
+//	catch (const ifstream::failure& e)
+//	{
+//		UNREFERENCED_PARAMETER(e);
+//		ThrowLdrError("Failed to read file '%ls': %s", Filename.c_str(), stdstrerror(errno).c_str());
+//	}
+//
+//	// Everything is good, change ownership of the file memory to the PELoader object
+//	m_Image = move(buf);
+//}
 
-VOID PELoader::LoadFromFile(const wstring& Filename)
+VOID PELoader::DoLoadFromFile(const wstring& Filename)
 {
-	unique_ptr<vector<char>> buf;
-	ifstream fstr;
-	
-	// Enable exceptions on i/o error
-	fstr.exceptions(ifstream::failbit | ifstream::badbit);
-	try
+	// Open file readonly
+	auto hFile = unique_handle
 	{
-		// Open with binary with the cursor at the end (ATE) of the file
-		fstr.open(Filename, ios::binary | ios::ate);
+		CreateFile(Filename.c_str(), FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+		NULL, OPEN_EXISTING, 0, NULL)
+	};
+	ThrowLdrLastErrorOnInvalidHandle(L"CreateFile", hFile.get());
 
-		// Determine how far the stream cursor is (this is the filesize since we started at the end!)
-		auto pos = fstr.tellg();
-
-		// Allocate vector<char> for the file contents
-		buf = make_unique<vector<char>>(pos);
-
-		// Seek to beginning and read the entire file
-		fstr.seekg(0, ios::beg);
-		fstr.read((*buf).data(), pos);
-		fstr.close();
-	}
-	catch (const ifstream::failure& e)
+	// Create the file mapping (NOTE: Doing this manually, not as SEC_IMAGE, requires moving the sections manually)
+	auto hMap = unique_handle
 	{
-		UNREFERENCED_PARAMETER(e);
-		ThrowLdrError("Failed to read file '%ls': %s", Filename.c_str(), stdstrerror(errno).c_str());
-	}
+		CreateFileMapping(hFile.get(), NULL, PAGE_READONLY, 0, 0, NULL)
+	};
+	ThrowLdrLastErrorOnInvalidHandle(L"CreateFileMapping", hMap.get());
 
-	// Everything is good, change ownership of the file memory to the PELoader object
-	m_Image = move(buf);
+	// Create the view of the entire file
+	auto PEFile = MapViewOfFile(hMap.get(), FILE_MAP_READ, 0, 0, 0);
+	ThrowLdrLastErrorOnInvalidHandle(L"MapViewOfFile", PEFile);
+
+	// Commit the handles
+	m_FileHandle = move(hFile);
+	m_FileMapping = move(hMap);
+	m_InMemoryBase = PEFile;
 }
 
-VOID PELoader::CheckValidBase()
+VOID PELoader::DoValidBaseCheck()
 {
-	if (!GetPEBase())
+	if (!GetLoadedBase())
 	{
 		ThrowLdrError("Invalid Base Address: %p. Did you load the module yet?\n", m_InMemoryBase);
 	}
 }
 
-PVOID PELoader::GetPEBase()
+VOID PELoader::DoRelocateImage()
 {
-	// If the module was loaded from a file, its contents will be in m_Image
-	if (m_Image)
+	auto BaseAddress = GetLoadedBase();
+	if (!HasNtHeaderFlag(IMAGE_FILE_RELOCS_STRIPPED))
 	{
-		return m_Image.get()->data();
-	}
-	else if (m_InMemoryBase)
-	{
-		return m_InMemoryBase;
+		// No relocation information in the PE file
+		// That means that we can load it into any base without fixups
+		return;
 	}
 	else
 	{
-		return nullptr;
+		// Must iterate through relocations in PE and fix addresses
+
+		// Relocation data directory section
+		auto RelocDDir = GetPEDataDirectoryEntry(IMAGE_DIRECTORY_ENTRY_BASERELOC);
+		
+		if (RelocDDir->VirtualAddress == 0 || RelocDDir->Size == 0)
+		{
+			ThrowLdrError("Relocation data directory VA/Size was 0! VA=%p, Size=%p", 
+				RelocDDir->VirtualAddress, RelocDDir->Size);
+		}
+		auto ImageBase = GetPEImageBase();
+		//auto RelocDelta = MakePointer<ULONG_PTR>(BaseAddress, -ImageBase);
+		auto RelocDir = MakePointer<PIMAGE_BASE_RELOCATION>(BaseAddress, RelocDDir->VirtualAddress);
+		auto RelocEnd = MakePointer<PIMAGE_BASE_RELOCATION>(RelocDir, RelocDDir->Size);
+
+		if (RelocDir >= RelocEnd)
+		{
+			ThrowLdrError("Base relocation entry table was 0 or negative size!");
+		}
 	}
+	return;
 }
 
-PIMAGE_NT_HEADERS PELoader::GetNTHeaders()
+BOOL PELoader::HasNtHeaderFlag(WORD Flag)
+{
+	return (GetNtHeaders()->FileHeader.Characteristics & Flag);
+}
+
+PVOID PELoader::GetLoadedBase()
+{
+	return m_InMemoryBase;
+}
+
+LONGLONG PELoader::GetPEImageBase()
+{
+	return GetNtHeaders()->OptionalHeader.ImageBase;
+}
+
+PIMAGE_DATA_DIRECTORY PELoader::GetPEDataDirectoryEntry(WORD DirectoryEnum)
+{
+	return &GetNtHeaders()->OptionalHeader.DataDirectory[DirectoryEnum];
+}
+
+PIMAGE_NT_HEADERS PELoader::GetNtHeaders()
 {
 	// Ensure valid base address (i.e. module has been loaded into memory)
-	CheckValidBase();
+	DoValidBaseCheck();
 
 	// DOS headers are at the very beginning of the PE file. Check signature!
-	auto DosHeader = MakePointer<PIMAGE_DOS_HEADER>(GetPEBase());
+	auto DosHeader = MakePointer<PIMAGE_DOS_HEADER>(GetLoadedBase());
 	if (DosHeader->e_magic != IMAGE_DOS_SIGNATURE)
 	{
 		ThrowLdrError("Invalid image DOS signature!\n");
@@ -100,5 +164,32 @@ PIMAGE_NT_HEADERS PELoader::GetNTHeaders()
 	}
 
 	return NtHeaders;
+}
+
+VOID PELoader::ThrowLdrLastError(const std::wstring & funcname)
+{
+	// Yeah, I'm not using wide-char here :[
+	LPSTR Buffer;
+
+	FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		FORMAT_MESSAGE_FROM_SYSTEM |
+		FORMAT_MESSAGE_IGNORE_INSERTS,
+		NULL,
+		GetLastError(),
+		LANG_USER_DEFAULT,
+		(LPSTR)&Buffer,
+		0,
+		NULL);
+
+	auto err = "%ls: "s + Buffer;
+	ThrowLdrError(err, funcname.c_str());
+}
+
+VOID PELoader::ThrowLdrLastErrorOnInvalidHandle(const std::wstring & funcname, HANDLE handle)
+{
+	// Error handle (same check as NT_SUCCESS)
+	if (reinterpret_cast<SIZE_T>(handle) > 0ULL) return;
+
+	ThrowLdrLastError(funcname);
 }
 

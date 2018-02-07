@@ -22,7 +22,7 @@ VOID PrintErrorAndExit(
 	exit(dwErrorCode);
 }
 
-const std::string stdstrerror(int errnum)
+std::string stdstrerror(int errnum)
 {
 	std::string errmsg;
 	errmsg.reserve(STRERROR_MAXSIZE);

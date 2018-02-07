@@ -9,4 +9,4 @@ const auto STRERROR_MAXSIZE = 5000ULL;
 VOID PrintErrorAndExit(wchar_t *Function, ULONG dwErrorCode);
 
 // Returns an std::string version of strerror of up to STRERROR_MAXSIZE size
-const std::string stdstrerror(int errnum);
+std::string stdstrerror(int errnum);
