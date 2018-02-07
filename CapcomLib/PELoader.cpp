@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "Helpers.h"
 #include "PELoader.h"
+#include "Helpers.h"
+#include "ExceptionHelpers.h"
 
 using namespace std;
 
@@ -12,7 +14,7 @@ PELoader::PELoader(const std::wstring& Filename)
 
 PELoader::PELoader(SIZE_T ImageBase)
 {
-	m_InMemoryBase = reinterpret_cast<PBYTE>(ImageBase);
+	m_FileMemoryBase = reinterpret_cast<PBYTE>(ImageBase);
 }
 
 PELoader::~PELoader()
@@ -76,14 +78,14 @@ VOID PELoader::DoLoadFromFile(const wstring& Filename)
 	// Commit the handles
 	m_FileHandle = move(hFile);
 	m_FileMapping = move(hMap);
-	m_InMemoryBase = PEFile;
+	m_FileMemoryBase = PEFile;
 }
 
 VOID PELoader::DoValidBaseCheck()
 {
 	if (!GetLoadedBase())
 	{
-		ThrowLdrError("Invalid Base Address: %p. Did you load the module yet?\n", m_InMemoryBase);
+		ThrowLdrError("Invalid Base Address: %p. Did you load the module yet?", m_FileMemoryBase);
 	}
 }
 
@@ -128,7 +130,13 @@ BOOL PELoader::HasNtHeaderFlag(WORD Flag)
 
 PVOID PELoader::GetLoadedBase()
 {
-	return m_InMemoryBase;
+	return m_FileMemoryBase;
+}
+
+PVOID PELoader::GetPEBase()
+{
+	if (!m_FileMemoryBase) ThrowLdrError("GetPEBase called with no PE file loaded!");
+	return m_FileMemoryBase;
 }
 
 LONGLONG PELoader::GetPEImageBase()
@@ -166,30 +174,7 @@ PIMAGE_NT_HEADERS PELoader::GetNtHeaders()
 	return NtHeaders;
 }
 
-VOID PELoader::ThrowLdrLastError(const std::wstring & funcname)
+VOID PELoader::AllocManualMap()
 {
-	// Yeah, I'm not using wide-char here :[
-	LPSTR Buffer;
 
-	FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER |
-		FORMAT_MESSAGE_FROM_SYSTEM |
-		FORMAT_MESSAGE_IGNORE_INSERTS,
-		NULL,
-		GetLastError(),
-		LANG_USER_DEFAULT,
-		(LPSTR)&Buffer,
-		0,
-		NULL);
-
-	auto err = "%ls: "s + Buffer;
-	ThrowLdrError(err, funcname.c_str());
 }
-
-VOID PELoader::ThrowLdrLastErrorOnInvalidHandle(const std::wstring & funcname, HANDLE handle)
-{
-	// Error handle (same check as NT_SUCCESS)
-	if (reinterpret_cast<SIZE_T>(handle) > 0ULL) return;
-
-	ThrowLdrLastError(funcname);
-}
-

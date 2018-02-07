@@ -30,10 +30,13 @@ public:
 	// Returns true if the NtHeaders have the given flag
 	BOOL HasNtHeaderFlag(WORD Flag);
 
-	// Gets the base of the module
+	// Gets the base of the module mapping
 	PVOID GetLoadedBase();
 
-	// Gets the image base of the module from the PE
+	// Gets the base of the PE file loaded in memory. Only call for manually mapped images.
+	PVOID GetPEBase();
+
+	// Gets the ImageBase field of the module from the PE
 	LONGLONG GetPEImageBase();
 
 	// Gets the data directory entry in the NtHeaders
@@ -43,47 +46,19 @@ public:
 	PIMAGE_NT_HEADERS GetNtHeaders();
 
 private:
-
 	// Handle to the underlying PE file
 	unique_handle m_FileHandle;
 
 	// Handle to the underlying file mapping
 	unique_handle m_FileMapping;
 
-	// Pointer to the base of the module loaded in memory if the file already exists in memory
-	PVOID m_InMemoryBase = NULL;
+	// Pointer to the base of the PE file (not mapped!) in memory
+	PVOID m_FileMemoryBase = NULL;
 
-	// Throws a C-style formatted std::runtime_error
-	template<typename ... Args>
-	PVOID ThrowLdrError(const std::string& format, Args ... args)
-	{
-		auto newfmt = "[PELoader] "s + format;
-		SIZE_T size = snprintf(nullptr, 0, newfmt.c_str(), args ...) + 1; // Extra space for '\0'
-		unique_ptr<char[]> buf(new char[size]);
-		snprintf(buf.get(), size, newfmt.c_str(), args ...);
-		auto outMsg = string(buf.get(), buf.get() + size - 1); // We don't want the '\0' inside
+	// Pointer to manually mapped memory during loading
+	unique_virtalloc m_InMemoryManual;
 
-		throw runtime_error(outMsg.c_str());
-	}
-
-	// Throws the error message for GetLastError. Includes the given funcname in the message.
-	VOID ThrowLdrLastError(const std::wstring& funcname);
-
-	// Ensures a valid handle, otherwise throws a loader error for the given funcname
-	VOID ThrowLdrLastErrorOnInvalidHandle(const std::wstring& funcname, HANDLE handle);
-
-	// Pointer type conversion with no offset
-	template<typename TargetType>
-	TargetType MakePointer(void* anyptr)
-	{
-		return reinterpret_cast<TargetType>(anyptr);
-	}
-
-	// Pointer type conversion with byte offset
-	template<typename TargetType>
-	TargetType MakePointer(void* anyptr, SIZE_T offset)
-	{
-		return reinterpret_cast<TargetType>(reinterpret_cast<SIZE_T>(anyptr) + offset);
-	}
+	// Allocates memory to perform manual section mapping
+	VOID AllocManualMap();
 };
 

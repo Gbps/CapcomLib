@@ -9,10 +9,6 @@
 class KernelHelp
 {
 public:
-	KernelHelp();
-	~KernelHelp();
-
-
 	/// Grabs a function address in the kernel using MmGetSystemRoutineAddress
 	template<class T>
 	static T GetRoutineAddr(MmGetSystemRoutineFunc _MmGetSystemRoutine, const TCHAR* RoutineName)
@@ -23,4 +19,3 @@ public:
 	}
 
 };
-

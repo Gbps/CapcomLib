@@ -3,8 +3,9 @@
 
 #include "stdafx.h"
 #include "DriverLoader.h"
-#include "KernelHelp.h"
 #include "PELoader.h"
+#include "PEFile.h"
+#include "KernelHelp.h"
 
 DECLARE_UNICODE_STRING(strAllocPoolWithTag, L"ExAllocatePoolWithTag");
 
@@ -24,8 +25,7 @@ PVOID NTAPI LoaderPayload(MmGetSystemRoutineFunc _MmGetSystemRoutineAddress)
 
 int main()
 {
-	PELoader loader(L"Capcom.sys");
-	loader.GetNtHeaders();
+	PEFile loader(L"Capcom.sys");
 
 	/*DriverLoader loader;
 	loader.LoadDriverFromFile(L".\\Capcom.sys");
