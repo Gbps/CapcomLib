@@ -3,6 +3,7 @@
 #include "stdafx.h"
 #include "Win32Helpers.h"
 #include "Helpers.h"
+#include "PEFile.h"
 
 // A very simple reflexive PE loader
 // Doesn't do anything fancy (.NET, SxS, AppCompat, or APISet)
@@ -13,52 +14,60 @@ public:
 	// Load a PE file from the path specified by Filename
 	PELoader(const std::wstring& Filename);
 
-	// If PE file already exists in memory, load by passing the address of the base of the image
-	PELoader(SIZE_T ImageBase);
+	// PE file is already loaded
+	PELoader(std::unique_ptr<PEFile> LoadedFile);
 
 	~PELoader();
 
-	// Loads the PE file from a file given by Filename
-	VOID DoLoadFromFile(const std::wstring& Filename);
 
-	// True if the PE file exists in memory
-	VOID DoValidBaseCheck();
+	// Maps a PE file into memory as a loaded image. 
+	// Maps the entire image into a flat area of memory. 
+	// Does not create separate allocations for each section.
+	// Useful for driver modules because their sections are mapped flat with the PE
+	HMODULE MapFlat(DWORD flProtect = PAGE_EXECUTE_READWRITE, BOOL shouldCopyHeaders = TRUE);
 
-	// Relocates PE file (for dll-type files)
-	VOID DoRelocateImage();
+	// Gets a pointer to the end of mapped memory
+	template<typename TargetPtr>
+	auto GetMappedEnd() const
+	{
+		return MakePointer<TargetPtr>(m_Mem.get(), m_MemSize);
+	}
 
-	// Returns true if the NtHeaders have the given flag
-	BOOL HasNtHeaderFlag(WORD Flag);
+	// Gets a pointer to the beginning of mapped memory
+	template<typename TargetPtr>
+	auto GetMappedBase() const
+	{
+		return MakePointer<TargetPtr>(m_Mem.get());
+	}
 
-	// Gets the base of the module mapping
-	PVOID GetLoadedBase();
-
-	// Gets the base of the PE file loaded in memory. Only call for manually mapped images.
-	PVOID GetPEBase();
-
-	// Gets the ImageBase field of the module from the PE
-	LONGLONG GetPEImageBase();
-
-	// Gets the data directory entry in the NtHeaders
-	PIMAGE_DATA_DIRECTORY GetPEDataDirectoryEntry(WORD DirectoryEnum);
-
-	// Verifies and returns PIMAGE_NT_HEADERS for PE file
-	PIMAGE_NT_HEADERS GetNtHeaders();
+	// Calculate an offset from the base of mapped memory
+	template<typename TargetPtr>
+	TargetPtr OffsetFromMappedBase(SIZE_T Offset) const
+	{
+		auto ptr = MakePointer<TargetPtr>(m_Mem.get(), Offset);
+		if (ptr >= GetMappedEnd<TargetPtr>() || ptr < m_Mem.get())
+		{
+			ThrowLdrError("OffsetFromMappedBase: Invalid mapped address");
+		}
+		return ptr;
+	}
 
 private:
-	// Handle to the underlying PE file
-	unique_handle m_FileHandle;
+	// Use VirtualAlloc to allocate memory to map the entire image
+	// NOTE: This is a flat allocator. The image will be in one large mapped
+	// section. At the moment, this is preferrable for the task at hand!
+	VOID AllocFlat(DWORD flProtect = PAGE_EXECUTE_READWRITE);
 
-	// Handle to the underlying file mapping
-	unique_handle m_FileMapping;
+	// Safe copy to mapped sections
+	VOID _MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size);
+private:
+	// Loaded and parsed PE File
+	std::unique_ptr<PEFile> m_PE;
 
-	// Pointer to the base of the PE file (not mapped!) in memory
-	PVOID m_FileMemoryBase = NULL;
+	// Memory of the manually mapped image
+	unique_virtalloc m_Mem;
 
-	// Pointer to manually mapped memory during loading
-	unique_virtalloc m_InMemoryManual;
-
-	// Allocates memory to perform manual section mapping
-	VOID AllocManualMap();
+	// Size of manually memory mapped image
+	SIZE_T m_MemSize;
 };
 

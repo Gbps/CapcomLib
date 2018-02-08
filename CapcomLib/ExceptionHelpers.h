@@ -30,4 +30,4 @@ PVOID ThrowLdrError(const std::string& format, Args ... args)
 VOID ThrowLdrLastError(const std::wstring & funcname);
 
 // Throw the error message for GetLastError on invalid handle
-VOID ThrowLdrLastErrorOnInvalidHandle(const std::wstring & funcname, HANDLE handle);
+VOID ThrowLdrLastError(const std::wstring & funcname, HANDLE handle);

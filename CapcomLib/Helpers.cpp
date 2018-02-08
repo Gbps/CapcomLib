@@ -52,7 +52,7 @@ VOID ThrowLdrLastError(const std::wstring & funcname)
 	ThrowFmtError(err, funcname.c_str());
 }
 
-VOID ThrowLdrLastErrorOnInvalidHandle(const std::wstring & funcname, HANDLE handle)
+VOID ThrowLdrLastError(const std::wstring & funcname, HANDLE handle)
 {
 	// Error handle (same check as NT_SUCCESS)
 	if (reinterpret_cast<LONGLONG>(handle) > 0ULL) return;

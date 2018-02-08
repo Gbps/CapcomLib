@@ -20,6 +20,12 @@ PEFile::PEFile(PVOID PEFileMemoryBase, SIZE_T PEFileMemorySize)
 	ParsePE();
 }
 
+SIZE_T PEFile::GetTotalMappedSize()
+{
+	// NOTE: Probably can't trust this
+	return m_SizeOfImage;
+}
+
 PEFile::~PEFile()
 {
 }
@@ -32,7 +38,7 @@ VOID PEFile::LoadFromFile(const wstring& Filename)
 		CreateFile(Filename.c_str(), FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 		NULL, OPEN_EXISTING, 0, NULL)
 	};
-	ThrowLdrLastErrorOnInvalidHandle(L"CreateFile", hFile.get());
+	ThrowLdrLastError(L"CreateFile", hFile.get());
 
 	// Get size of the image file
 	auto dwFileSizeHigh = DWORD{};
@@ -46,11 +52,11 @@ VOID PEFile::LoadFromFile(const wstring& Filename)
 	{
 		CreateFileMapping(hFile.get(), NULL, PAGE_READONLY, 0, 0, NULL)
 	};
-	ThrowLdrLastErrorOnInvalidHandle(L"CreateFileMapping", hMap.get());
+	ThrowLdrLastError(L"CreateFileMapping", hMap.get());
 
 	// Create the view of the entire file
 	auto PEFile = MapViewOfFile(hMap.get(), FILE_MAP_READ, 0, 0, 0);
-	ThrowLdrLastErrorOnInvalidHandle(L"MapViewOfFile", PEFile);
+	ThrowLdrLastError(L"MapViewOfFile", PEFile);
 
 	// Commit the handles
 	m_FileHandle = move(hFile);

@@ -1,10 +1,15 @@
 #pragma once
 #include "stdafx.h"
 #include "Win32Helpers.h"
+#include "ExceptionHelpers.h"
+#include "Helpers.h"
+
+class PEFileSection;
 
 // Describes a raw PE file in mapped into memory
 class PEFile
 {
+	friend class PEFileSection;
 public:
 	// Load PE file from a file by mapping the file into the process VA
 	PEFile(const std::wstring& Filename);
@@ -12,7 +17,41 @@ public:
 	// If the PE file is already in memory, use this one
 	PEFile(PVOID PEFileMemoryBase, SIZE_T PEFileMemorySize);
 
+	// Get the total size of the image after mapping
+	SIZE_T GetTotalMappedSize();
+
+	// Get sections to map memory of PE
+	auto GetSections() const
+	{
+		return m_MemSections;
+	}
+
 	~PEFile();
+
+
+	// Calculate an offset from the base of the file
+	template<typename TargetPtr>
+	TargetPtr OffsetFromBase(SIZE_T Offset) const
+	{
+		auto ptr = MakePointer<TargetPtr>(m_FileMemoryBase, Offset);
+		if (ptr >= m_FileMemoryEnd || ptr < m_FileMemoryBase)
+		{
+			ThrowLdrError("OffsetFromBase: Invalid file offset");
+		}
+		return ptr;
+	}
+
+	// Get a reference to the base of the headers
+	auto GetHeadersBase() const
+	{
+		return reinterpret_cast<const PIMAGE_DOS_HEADER&>(m_FileMemoryBase);
+	}
+
+	// Gets the size of all headers
+	auto GetHeadersSize() const
+	{
+		return m_SizeOfHeaders;
+	}
 
 private:
 	// Map a PE file into memory
@@ -65,7 +104,7 @@ private:
 	   * e_lfanew member of DOS_Header
 	   * 4 byte signature
 	   * size of COFFHeader
-	   * size of optional header
+	   * size of optional Header
 	   * size of all section headers
 	*/
 	DWORD m_SizeOfHeaders;
@@ -84,4 +123,3 @@ private:
 
 
 };
-
