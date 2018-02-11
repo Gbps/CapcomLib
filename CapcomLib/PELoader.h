@@ -62,7 +62,7 @@ private:
 	VOID DoRelocateImage();
 
 	// Process the Blocks field of a single IMAGE_BASE_RELOCATION
-	auto PELoader::ProcessRelocationBlocks(PWORD BlocksAddress, PULONG RelocBaseAddress, SIZE_T RelocDelta, SIZE_T Count);
+	auto ProcessRelocationBlocks(PWORD BlocksAddress, PULONG RelocBaseAddress, SIZE_T RelocDelta, SIZE_T Count);
 
 	// Safe copy to mapped sections
 	VOID _MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size);

@@ -85,7 +85,6 @@ VOID PELoader::AllocFlat(DWORD flProtect)
 	m_MemSize = totalSize;
 }
 
-
 auto PELoader::ProcessRelocationBlocks(PWORD BlocksAddress, PULONG RelocBaseAddress, SIZE_T RelocDelta, SIZE_T Count)
 {
 	auto CurrentBlock = BlocksAddress;
