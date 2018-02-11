@@ -63,6 +63,9 @@ HMODULE PELoader::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders)
 		_MapSafeCopy(targetVA, secData, sec.SizeOfRawData);
 	}
 
+	// Do relocations if necessary
+	DoRelocateImage();
+
 	return GetMappedBase<HMODULE>();
 }
 
@@ -82,37 +85,112 @@ VOID PELoader::AllocFlat(DWORD flProtect)
 	m_MemSize = totalSize;
 }
 
-//
-//VOID PELoader::DoRelocateImage()
-//{
-//	auto BaseAddress = GetLoadedBase();
-//	if (!HasNtHeaderFlag(IMAGE_FILE_RELOCS_STRIPPED))
-//	{
-//		// No relocation information in the PE file
-//		// That means that we can load it into any base without fixups
-//		return;
-//	}
-//	else
-//	{
-//		// Must iterate through relocations in PE and fix addresses
-//
-//		// Relocation data directory section
-//		auto RelocDDir = GetPEDataDirectoryEntry(IMAGE_DIRECTORY_ENTRY_BASERELOC);
-//		
-//		if (RelocDDir->VirtualAddress == 0 || RelocDDir->Size == 0)
-//		{
-//			ThrowLdrError("Relocation data directory VA/Size was 0! VA=%p, Size=%p", 
-//				RelocDDir->VirtualAddress, RelocDDir->Size);
-//		}
-//		auto ImageBase = GetPEImageBase();
-//		//auto RelocDelta = MakePointer<ULONG_PTR>(BaseAddress, -ImageBase);
-//		auto RelocDir = MakePointer<PIMAGE_BASE_RELOCATION>(BaseAddress, RelocDDir->VirtualAddress);
-//		auto RelocEnd = MakePointer<PIMAGE_BASE_RELOCATION>(RelocDir, RelocDDir->Size);
-//
-//		if (RelocDir >= RelocEnd)
-//		{
-//			ThrowLdrError("Base relocation entry table was 0 or negative size!");
-//		}
-//	}
-//	return;
-//}
+
+auto PELoader::ProcessRelocationBlocks(PWORD BlocksAddress, PULONG RelocBaseAddress, SIZE_T RelocDelta, SIZE_T Count)
+{
+	auto CurrentBlock = BlocksAddress;
+	for (SIZE_T i = 0; i < Count; i++)
+	{
+		// 4-bits Type, 12-bits Offset
+		auto OffsetType = *CurrentBlock;
+
+		// Offset from the RelocBaseAddress to apply Delta
+		auto Offset = OffsetType & 0xFFF;
+
+		// Relocation Type
+		auto Type = OffsetType >> 12;
+
+		// Target to apply the relocation
+		auto RealTargetShortPtr = MakePointer<PSHORT>(RelocBaseAddress, Offset);
+		auto RealTargetLongPtr = MakePointer<PULONG>(RealTargetShortPtr);
+		auto RealTargetLongLongPtr = MakePointer<PULONGLONG>(RealTargetShortPtr);
+
+		// From ReactOS (Just want to make sure I get this exactly right)
+		switch (Type)
+		{
+		case IMAGE_REL_BASED_ABSOLUTE:
+			break;
+
+		case IMAGE_REL_BASED_HIGH:
+			*RealTargetShortPtr = HIWORD(MAKELONG(0, *RealTargetShortPtr) + (RelocDelta & 0xFFFFFFFF));
+			break;
+
+		case IMAGE_REL_BASED_LOW:
+			*RealTargetShortPtr = *RealTargetShortPtr + LOWORD(RelocDelta & 0xFFFF);
+			break;
+
+		case IMAGE_REL_BASED_HIGHLOW:
+			*RealTargetLongPtr = *RealTargetLongPtr + (RelocDelta & 0xFFFFFFFF);
+			break;
+
+		case IMAGE_REL_BASED_DIR64:
+			*RealTargetLongLongPtr = *RealTargetLongLongPtr + RelocDelta;
+			break;
+
+		default:
+			ThrowLdrError("Given relocation type was not supported (0x%llX)", Type);
+			break;
+		}
+
+		// Go to the next block
+		CurrentBlock++;
+	}
+	return (PIMAGE_BASE_RELOCATION)CurrentBlock;
+}
+
+VOID PELoader::DoRelocateImage()
+{
+	auto BaseAddress = GetMappedBase<PBYTE>();
+	if (m_PE->HasFileCharacteristic(IMAGE_FILE_RELOCS_STRIPPED))
+	{
+		// File does not have relocations
+		return;
+	}
+	else
+	{
+		const auto& RelocDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_BASERELOC);
+
+		if (RelocDDir.VirtualAddress == 0 || RelocDDir.Size == 0)
+		{
+			ThrowLdrError("Relocation data directory VA/Size was 0! VA=%p, Size=%p", 
+				RelocDDir.VirtualAddress, RelocDDir.Size);
+		}
+
+		// The Delta to add to each relocation entry address to relocate
+		auto RelocDelta = MakePointer<LONGLONG>(BaseAddress - m_PE->GetImageBase());
+
+		// Sanity check. Relocations do not have to be applied.
+		if (RelocDelta == 0)
+		{
+			return;
+		}
+
+		auto RelocDir = MakePointer<PIMAGE_BASE_RELOCATION>(BaseAddress, RelocDDir.VirtualAddress);
+		auto RelocEnd = MakePointer<PIMAGE_BASE_RELOCATION>(RelocDir, RelocDDir.Size);
+
+		if (RelocDir >= RelocEnd)
+		{
+			ThrowLdrError("Base relocation entry table was 0 or negative size!");
+		}
+
+		// Iterate through each base directory, then fix each block list inside the base directory
+		// NtHeadersDirectory -> PIMAGE_BASE_RELOCATION[] -> Blocks[]
+
+		while (RelocDir < RelocEnd && RelocDir->SizeOfBlock > 0)
+		{
+			// Number of relocations in this IMAGE_BASE_RELOCATION
+			auto Count = (RelocDir->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(USHORT);
+
+			// Address to offset from for the relocation blocks
+			auto Address = MakePointer<PULONG>(BaseAddress, RelocDir->VirtualAddress);
+
+			// Address of the Blocks which contain the Type|Address bitfields
+			auto BlocksAddress = MakePointer<PWORD>(RelocDir, sizeof(IMAGE_BASE_RELOCATION));
+
+			// Process each entry in the block
+			RelocDir = ProcessRelocationBlocks(BlocksAddress, Address, RelocDelta, Count);
+		}
+	}
+
+	return;
+}

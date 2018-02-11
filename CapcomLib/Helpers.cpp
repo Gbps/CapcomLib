@@ -54,8 +54,8 @@ VOID ThrowLdrLastError(const std::wstring & funcname)
 
 VOID ThrowLdrLastError(const std::wstring & funcname, HANDLE handle)
 {
-	// Error handle (same check as NT_SUCCESS)
-	if (reinterpret_cast<LONGLONG>(handle) > 0ULL) return;
+	auto status = (LONGLONG)handle;
+	if (status >= 0LL) return;
 
 	ThrowLdrLastError(funcname);
 }

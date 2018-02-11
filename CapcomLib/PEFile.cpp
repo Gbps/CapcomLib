@@ -90,6 +90,7 @@ VOID PEFile::ParsePE()
 		ThrowLdrError("Invalid image NT signature");
 	}
 
+
 	PIMAGE_SECTION_HEADER pSectionHeaders = nullptr;
 
 	// I like this method of using a lambda for 32/64 switch, so I stole it
@@ -103,6 +104,11 @@ VOID PEFile::ParsePE()
 		m_SizeOfHeaders = OptHdr.SizeOfHeaders;
 		m_AddressOfEntryPointRVA = OptHdr.AddressOfEntryPoint;
 		m_DllCharacteristics = OptHdr.DllCharacteristics;
+
+		for (size_t i = 0; i < IMAGE_NUMBEROF_DIRECTORY_ENTRIES; i++)
+		{
+			m_Directories.push_back(_NtHeaders->OptionalHeader.DataDirectory[i]);
+		}
 
 		// Section headers follow directly after NtHeaders
 		pSectionHeaders = MakePointer<PIMAGE_SECTION_HEADER>(_NtHeaders, sizeof(*_NtHeaders));
@@ -127,6 +133,9 @@ VOID PEFile::ParsePE()
 
 	// Determine if it's an EXE or DLL
 	m_IsExe = !(NtHeaders->FileHeader.Characteristics == IMAGE_FILE_DLL);
+
+	// For relocations
+	m_Characteristics = NtHeaders->FileHeader.Characteristics;
 
 	// NOTE: No IL loading
 

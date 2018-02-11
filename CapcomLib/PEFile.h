@@ -53,6 +53,24 @@ public:
 		return m_SizeOfHeaders;
 	}
 
+	// True if FileHeadeers has characteristics flag
+	auto HasFileCharacteristic(WORD Flag) const
+	{
+		return (Flag & m_Characteristics);
+	}
+
+	// Gets the IMAGE_DIRECTORY_ENTRY for the specified index
+	const auto& GetDirectoryEntry(WORD DirectoryIndex) const
+	{
+		return m_Directories.at(DirectoryIndex);
+	}
+
+	// Gets the NtHeader ImageBase
+	auto GetImageBase() const
+	{
+		return m_ImageBase;
+	}
+
 private:
 	// Map a PE file into memory
 	VOID LoadFromFile(const std::wstring & Filename);
@@ -75,6 +93,9 @@ private:
 
 	// Memory section list for the memory mapper
 	std::vector<IMAGE_SECTION_HEADER> m_MemSections;
+
+	// Directory Entries
+	std::vector<IMAGE_DATA_DIRECTORY> m_Directories;
 
 private:
 	
@@ -121,5 +142,8 @@ private:
 	*/
 	WORD m_DllCharacteristics;
 
-
+	/*
+		This is a field of bit flags, that show some characteristics of the file.
+	*/
+	WORD m_Characteristics;
 };

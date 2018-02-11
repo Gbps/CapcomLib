@@ -58,6 +58,12 @@ private:
 	// section. At the moment, this is preferrable for the task at hand!
 	VOID AllocFlat(DWORD flProtect = PAGE_EXECUTE_READWRITE);
 
+	// Relocates an image in memory by fixing up each address specified in the PE
+	VOID DoRelocateImage();
+
+	// Process the Blocks field of a single IMAGE_BASE_RELOCATION
+	auto PELoader::ProcessRelocationBlocks(PWORD BlocksAddress, PULONG RelocBaseAddress, SIZE_T RelocDelta, SIZE_T Count);
+
 	// Safe copy to mapped sections
 	VOID _MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size);
 private:
