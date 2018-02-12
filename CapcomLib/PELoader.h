@@ -34,20 +34,20 @@ public:
 	}
 
 	// Gets a pointer to the beginning of mapped memory
-	template<typename TargetPtr>
+	template<typename TargetPtr = PVOID>
 	auto GetMappedBase() const
 	{
 		return MakePointer<TargetPtr>(m_Mem.get());
 	}
 
 	// Calculate an offset from the base of mapped memory
-	template<typename TargetPtr>
-	TargetPtr OffsetFromMappedBase(SIZE_T Offset) const
+	template<typename TargetPtr = PVOID>
+	TargetPtr FromRVA(SIZE_T Offset) const
 	{
 		auto ptr = MakePointer<TargetPtr>(m_Mem.get(), Offset);
 		if (ptr >= GetMappedEnd<TargetPtr>() || ptr < m_Mem.get())
 		{
-			ThrowLdrError("OffsetFromMappedBase: Invalid mapped address");
+			ThrowLdrError("FromRVA: Invalid mapped address");
 		}
 		return ptr;
 	}
@@ -66,14 +66,58 @@ private:
 
 	// Safe copy to mapped sections
 	VOID _MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size);
+
+	// Uses undocumented NtQuerySystemInformation to leak addresses of system modules
+	auto GetSystemModules();
+
+	// Resolves import for manually mapped image
+	auto DoImportResolve(BOOL IsDriver = FALSE);
+
 private:
 	// Loaded and parsed PE File
 	std::unique_ptr<PEFile> m_PE;
 
 	// Memory of the manually mapped image
-	unique_virtalloc m_Mem;
+	unique_virtalloc<> m_Mem;
 
 	// Size of manually memory mapped image
 	SIZE_T m_MemSize;
 };
 
+// Helper class for processing imports
+class ImportDescriptorWrapper
+{
+public:
+	ImportDescriptorWrapper(const IMAGE_IMPORT_DESCRIPTOR& ImportDescriptor, const PELoader& Parent) :
+		m_Desc(ImportDescriptor), m_Parent(Parent) {}
+
+	// Gets the resolved VA of OriginalFirstThunk or FirstThunk, in order, whichever is not NULL
+	auto GetThunkVA()
+	{
+		auto OriginalFirstThunk = m_Desc.OriginalFirstThunk;
+		auto FirstThunk = m_Desc.FirstThunk;
+		if (OriginalFirstThunk)
+		{
+			return m_Parent.FromRVA<>(OriginalFirstThunk);
+		}
+		else if (FirstThunk)
+		{
+			return m_Parent.FromRVA<>(FirstThunk);
+		}
+		else
+		{
+			ThrowLdrError("GetThunkVA: Both OriginalFirstThunk and FirstThunk were null");
+		}
+	}
+
+	// Gets ASCII Name of the module to import from
+	auto GetModuleName()
+	{
+		auto AnsiName = m_Parent.FromRVA<PCHAR>(m_Desc.Name);
+		return std::string{ AnsiName };
+	}
+
+private:
+	const PELoader& m_Parent;
+	const IMAGE_IMPORT_DESCRIPTOR& m_Desc;
+};

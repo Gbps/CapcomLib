@@ -3,9 +3,11 @@
 #include "PELoader.h"
 #include "Helpers.h"
 #include "ExceptionHelpers.h"
+#include "Win32Kernel.h"
 
 using namespace std;
 
+#pragma comment(lib,"ntdll.lib")
 
 PELoader::PELoader(const std::wstring& Filename)
 {
@@ -38,6 +40,71 @@ VOID PELoader::_MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size)
 	RtlCopyMemory(TargetVA, SourceVA, Size);
 }
 
+auto PELoader::GetSystemModules()
+{
+	// Try a size and then increase if necessary
+	auto initialSize = 0x10000;
+	auto actualSize = ULONG{};
+	auto ModuleInfo = unique_virtalloc<_RTL_PROCESS_MODULES>
+	{
+		reinterpret_cast<PRTL_PROCESS_MODULES>
+		(
+			VirtualAlloc(NULL, initialSize, MEM_COMMIT, PAGE_READWRITE)
+		)
+	};
+
+	if (!ModuleInfo) ThrowLdrLastError(L"VirtualAlloc");
+
+	auto res = NtQuerySystemInformation(SystemModuleInformation, ModuleInfo.get(), initialSize, &actualSize);
+	if (res == STATUS_INFO_LENGTH_MISMATCH)
+	{
+		// Release old ModuleInfo and allocate one with actual size
+		ModuleInfo = unique_virtalloc<_RTL_PROCESS_MODULES>
+		{
+			reinterpret_cast<PRTL_PROCESS_MODULES>
+			(
+				VirtualAlloc(NULL, actualSize, MEM_COMMIT, PAGE_READWRITE)
+			)
+		};
+		if (!ModuleInfo) ThrowLdrLastError(L"VirtualAlloc");
+
+		// Query again
+		res = NtQuerySystemInformation(SystemModuleInformation, ModuleInfo.get(), initialSize, &actualSize);
+	}
+
+	auto outVec = vector<RTL_PROCESS_MODULE_INFORMATION>{};
+	for (auto i = 0ULL; i < ModuleInfo->NumberOfModules; i++)
+	{
+		outVec.push_back(ModuleInfo->Modules[i]);
+	}
+
+	return outVec;
+}
+
+auto PELoader::DoImportResolve(BOOL IsDriver)
+{
+	auto ImageDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_IMPORT);
+	if (ImageDDir.Size == 0 || ImageDDir.VirtualAddress == 0)
+	{
+		// No imports... go figure
+		return;
+	}
+
+	if (!IsDriver)
+	{
+		ThrowLdrError("Ring3 not supported yet!");
+	}
+
+	// First entry in import descriptor table
+	auto CurImportEntry = MakePointer<PIMAGE_IMPORT_DESCRIPTOR>(GetMappedBase<>(), ImageDDir.VirtualAddress);
+
+	// Go through each entry until Name is NULL (the all-null entry that acts as the terminator)
+	for (; CurImportEntry->Name; CurImportEntry++)
+	{
+		auto res = GetSystemModules();
+	}
+}
+
 HMODULE PELoader::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders)
 {
 	// Ensure we've allocated space for the entire image
@@ -58,13 +125,16 @@ HMODULE PELoader::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders)
 	for (const auto& sec : memSections)
 	{
 		auto secData = m_PE->OffsetFromBase<PBYTE>(sec.PointerToRawData);
-		auto targetVA = OffsetFromMappedBase<PBYTE>(sec.VirtualAddress);
+		auto targetVA = FromRVA<PBYTE>(sec.VirtualAddress);
 
 		_MapSafeCopy(targetVA, secData, sec.SizeOfRawData);
 	}
 
 	// Do relocations if necessary
 	DoRelocateImage();
+
+	// Resolves imports
+	DoImportResolve(TRUE);
 
 	return GetMappedBase<HMODULE>();
 }
@@ -75,7 +145,7 @@ VOID PELoader::AllocFlat(DWORD flProtect)
 
 	auto totalSize = m_PE->GetTotalMappedSize();
 
-	auto alloc = unique_virtalloc
+	auto alloc = unique_virtalloc<>
 	{
 		VirtualAllocEx(GetCurrentProcess(), NULL, totalSize, MEM_RESERVE | MEM_COMMIT, flProtect)
 	};

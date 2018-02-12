@@ -1,5 +1,6 @@
 #pragma once
 #include "stdafx.h"
+#include "winternl.h"
 
 // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/wdm/ne-wdm-_pool_type
 typedef enum _POOL_TYPE {
@@ -52,3 +53,28 @@ typedef PVOID(NTAPI *ExAllocatePoolWithTagFunc)(
 /// MMGetSystemRoutine is the GetProcAddress of the kernel. Capcom.sys passes us the address
 /// of this function as the first argument
 typedef PVOID(NTAPI *MmGetSystemRoutineFunc)(PUNICODE_STRING SystemRoutineName);
+
+// From Process Hacker for NtQuerySystemInformation
+typedef struct _RTL_PROCESS_MODULE_INFORMATION
+{
+	HANDLE Section;
+	PVOID MappedBase;
+	PVOID ImageBase;
+	ULONG ImageSize;
+	ULONG Flags;
+	USHORT LoadOrderIndex;
+	USHORT InitOrderIndex;
+	USHORT LoadCount;
+	USHORT OffsetToFileName;
+	UCHAR FullPathName[256];
+} RTL_PROCESS_MODULE_INFORMATION, *PRTL_PROCESS_MODULE_INFORMATION;
+
+typedef struct _RTL_PROCESS_MODULES
+{
+	ULONG NumberOfModules;
+	RTL_PROCESS_MODULE_INFORMATION Modules[1];
+} RTL_PROCESS_MODULES, *PRTL_PROCESS_MODULES;
+
+
+#define SystemModuleInformation (SYSTEM_INFORMATION_CLASS)11
+#define STATUS_INFO_LENGTH_MISMATCH 0xc0000004

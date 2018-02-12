@@ -33,7 +33,8 @@ struct VirtualFreeDeleter
 };
 
 // C++ Smart Pointer for VirtualAlloc memory
-using unique_virtalloc = std::unique_ptr<VOID, VirtualFreeDeleter>;
+template<typename PtrType = VOID>
+using unique_virtalloc = std::unique_ptr<PtrType, VirtualFreeDeleter>;
 
 // Creates an ownership-managed object that creates a UNICODE_STRING from a wstring
 template <class StrClass>
