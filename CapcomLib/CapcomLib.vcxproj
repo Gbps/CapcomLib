@@ -145,6 +145,7 @@
   <ItemGroup>
     <ClInclude Include="DriverLoader.h" />
     <ClInclude Include="ExceptionHelpers.h" />
+    <ClInclude Include="Hashing.h" />
     <ClInclude Include="Helpers.h" />
     <ClInclude Include="KernelHelp.h" />
     <ClInclude Include="PEFile.h" />

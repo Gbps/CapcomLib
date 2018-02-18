@@ -73,6 +73,11 @@ private:
 	// Resolves import for manually mapped image
 	auto DoImportResolve(BOOL IsDriver = FALSE);
 
+	// Finds a loaded kernel module by name, loads it, and finds the export address to pre-link modules before mapping.
+	PVOID FindAndLoadKernelExport(const vector<RTL_PROCESS_MODULE_INFORMATION>& SysModules, const char * ModuleName, int Ordinal, const char * ImportName);
+
+	void DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir);
+
 private:
 	// Loaded and parsed PE File
 	std::unique_ptr<PEFile> m_PE;
@@ -82,42 +87,7 @@ private:
 
 	// Size of manually memory mapped image
 	SIZE_T m_MemSize;
-};
 
-// Helper class for processing imports
-class ImportDescriptorWrapper
-{
-public:
-	ImportDescriptorWrapper(const IMAGE_IMPORT_DESCRIPTOR& ImportDescriptor, const PELoader& Parent) :
-		m_Desc(ImportDescriptor), m_Parent(Parent) {}
-
-	// Gets the resolved VA of OriginalFirstThunk or FirstThunk, in order, whichever is not NULL
-	auto GetThunkVA()
-	{
-		auto OriginalFirstThunk = m_Desc.OriginalFirstThunk;
-		auto FirstThunk = m_Desc.FirstThunk;
-		if (OriginalFirstThunk)
-		{
-			return m_Parent.FromRVA<>(OriginalFirstThunk);
-		}
-		else if (FirstThunk)
-		{
-			return m_Parent.FromRVA<>(FirstThunk);
-		}
-		else
-		{
-			ThrowLdrError("GetThunkVA: Both OriginalFirstThunk and FirstThunk were null");
-		}
-	}
-
-	// Gets ASCII Name of the module to import from
-	auto GetModuleName()
-	{
-		auto AnsiName = m_Parent.FromRVA<PCHAR>(m_Desc.Name);
-		return std::string{ AnsiName };
-	}
-
-private:
-	const PELoader& m_Parent;
-	const IMAGE_IMPORT_DESCRIPTOR& m_Desc;
+	// Map of all kernel modules loaded during kernel export resolution
+	std::map<fnv_t, std::unique_ptr<PEFile>> m_KernelResolveModules;
 };

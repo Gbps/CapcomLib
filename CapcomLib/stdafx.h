@@ -10,6 +10,7 @@
 #include <Windows.h>
 #include <stdio.h>
 #include <tchar.h>
+#include <Psapi.h>
 
 #include <intrin.h>
 #include <Shlwapi.h>
@@ -21,4 +22,5 @@
 #include <sstream>
 #include <memory>
 #include <vector>
+#include <map>
 #include <winternl.h>

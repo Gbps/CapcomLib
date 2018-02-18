@@ -10,14 +10,25 @@ using namespace std;
 PEFile::PEFile(const std::wstring & Filename)
 {
 	LoadFromFile(Filename);
-	ParsePE();
+	ParsePEHeaders();
 }
 
 PEFile::PEFile(PVOID PEFileMemoryBase, SIZE_T PEFileMemorySize)
 {
 	m_FileMemoryBase = PEFileMemoryBase;
 	m_FileMemoryEnd = MakePointer<PVOID>(m_FileMemoryBase, PEFileMemorySize);
-	ParsePE();
+	ParsePEHeaders();
+}
+
+PEFile::PEFile(unique_module Module)
+{
+	auto hModule = (HMODULE) Module.get();
+	m_LoadedModule = move(Module);
+	m_FileMemoryBase = hModule;
+
+	ParsePEHeaders();
+
+	m_FileMemoryEnd = MakePointer<PVOID>(m_FileMemoryBase, GetImageSize());
 }
 
 SIZE_T PEFile::GetTotalMappedSize()
@@ -68,7 +79,7 @@ VOID PEFile::LoadFromFile(const wstring& Filename)
 
 // Loader process based off of Blackbone
 // https://github.com/DarthTon/Blackbone/blob/master/src/BlackBone/PE/PEImage.cpp
-VOID PEFile::ParsePE()
+VOID PEFile::ParsePEHeaders()
 {
 	// Ensure valid base address (i.e. module has been loaded into memory)
 	if (!m_FileMemoryBase) ThrowFmtError("No module loaded");

@@ -17,6 +17,21 @@ struct Win32HandleDeleter
 // C++ Smart Pointer for Win32 Handles
 using unique_handle = std::unique_ptr<void, Win32HandleDeleter>;
 
+// Auto deleter for C++ smart pointers for Win32 LoadLibrary
+struct Win32ModuleDeleter
+{
+	void operator()(HMODULE handle)
+	{
+		if (handle != nullptr)
+		{
+			::FreeLibrary(handle);
+		}
+	}
+};
+
+// C++ Smart Pointer for Win32 Handles
+using unique_module = std::unique_ptr<void, Win32ModuleDeleter>;
+
 // Auto deleter for C++ smart pointers for VirtualAlloc memory
 struct VirtualFreeDeleter
 {

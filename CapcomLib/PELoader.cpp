@@ -95,13 +95,92 @@ auto PELoader::DoImportResolve(BOOL IsDriver)
 		ThrowLdrError("Ring3 not supported yet!");
 	}
 
+	DoImportResolveKernel(ImageDDir);
+}
+
+PVOID PELoader::FindAndLoadKernelExport(const vector<RTL_PROCESS_MODULE_INFORMATION>& SysModules, 
+	const char* ModuleName, 
+	int Ordinal = -1,
+	const char* ImportName = NULL)
+{
+	// TODO: Check if it's in the loaded module list
+
+	for (const auto& mod : SysModules)
+	{
+		auto offFileName = mod.OffsetToFileName;
+		auto fullName = mod.FullPathName;
+		auto nameStr = fullName + offFileName;
+
+		// If strings are equal
+		/*auto handleBase = unique_module
+		{
+			LoadLibraryExA(fullName, NULL, LOAD_LIBRARY_AS_DATAFILE)
+		};
+		ThrowLdrLastError(L"LoadLibraryExA", handleBase.get());*/
+
+	}
+}
+
+void PELoader::DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir)
+{
 	// First entry in import descriptor table
 	auto CurImportEntry = MakePointer<PIMAGE_IMPORT_DESCRIPTOR>(GetMappedBase<>(), ImageDDir.VirtualAddress);
 
+	// Use NtQuerySystemInformation to grab base addresses of necessary modules
+	auto SysModules = GetSystemModules();
+
 	// Go through each entry until Name is NULL (the all-null entry that acts as the terminator)
+	// NOTE: 64-bit only
 	for (; CurImportEntry->Name; CurImportEntry++)
 	{
-		auto res = GetSystemModules();
+		// Name of the module to import from ex. 'ntoskrnl.exe'
+		auto ModuleName = FromRVA<char*>(CurImportEntry->Name);
+
+		// The address of the table of thunks containing the IAT entry to place the resolved function once when we get it
+		auto IATThunk = FromRVA<IMAGE_THUNK_DATA*>(CurImportEntry->FirstThunk);
+
+		// The address of the table of Name/Ordinal thunks. 
+		// If it's import by ordinal, the ordinal will be there.
+		// If it's import by name, a pointer to the name will be there.
+		auto NameThunk = FromRVA<IMAGE_THUNK_DATA*>(CurImportEntry->OriginalFirstThunk);
+
+		if (CurImportEntry->OriginalFirstThunk == 0)
+		{
+			// No separate name table
+			NameThunk = IATThunk;
+		}
+
+		// Loop through both tables until null terminated
+		while (NameThunk->u1.AddressOfData)
+		{
+			auto ordinal = -1;
+			auto isOrdinalImport = NameThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG;
+			const char* name;
+
+			if (isOrdinalImport)
+			{
+				// Import by ordinal
+				ordinal = NameThunk->u1.Ordinal & 0xFFFF;
+			}
+			else
+			{
+				// Import by name
+				name = FromRVA<IMAGE_IMPORT_BY_NAME*>(NameThunk->u1.AddressOfData)->Name;
+			}
+
+			if (NameThunk == IATThunk)
+			{
+				// Single table
+				NameThunk++;
+			}
+			else
+			{
+				// Two tables
+				NameThunk++;
+				IATThunk++;
+			}
+		}
+
 	}
 }
 

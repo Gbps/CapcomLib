@@ -17,6 +17,9 @@ public:
 	// If the PE file is already in memory, use this one
 	PEFile(PVOID PEFileMemoryBase, SIZE_T PEFileMemorySize);
 
+	// Load a PEFile from HMODULE
+	PEFile(unique_module Module);
+
 	// Get the total size of the image after mapping
 	SIZE_T GetTotalMappedSize();
 
@@ -71,12 +74,18 @@ public:
 		return m_ImageBase;
 	}
 
+	// Gets the NtHeader SizeOfImage
+	auto GetImageSize() const
+	{
+		return m_SizeOfImage;
+	}
+
 private:
 	// Map a PE file into memory
 	VOID LoadFromFile(const std::wstring & Filename);
 
 	// Parses the PE file structure
-	VOID ParsePE();
+	VOID ParsePEHeaders();
 
 private:
 	// Handle to the underlying PE file
@@ -84,6 +93,9 @@ private:
 
 	// Handle to the underlying PE file mapping
 	unique_handle m_FileMapping;
+
+	// If the module was loaded by LoadLibrary
+	unique_module m_LoadedModule;
 
 	// Pointer to the base of the PE file (not image mapped!) in memory
 	PVOID m_FileMemoryBase;

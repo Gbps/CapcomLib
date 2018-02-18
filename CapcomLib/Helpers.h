@@ -1,5 +1,6 @@
 #pragma once
 #include "stdafx.h"
+#include "Hashing.h"
 
 // Maximum size returned from stdstrerror
 const auto STRERROR_MAXSIZE = 5000ULL;
