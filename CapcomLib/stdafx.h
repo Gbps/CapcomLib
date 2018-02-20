@@ -22,5 +22,9 @@
 #include <sstream>
 #include <memory>
 #include <vector>
-#include <map>
+#include <unordered_map>
+#include <cctype>
+#include <algorithm>
+#include <locale>
+#include <codecvt>
 #include <winternl.h>

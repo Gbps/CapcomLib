@@ -4,6 +4,7 @@
 #include "Win32Helpers.h"
 #include "Helpers.h"
 #include "PEFile.h"
+#include "Win32Kernel.h"
 
 // A very simple reflexive PE loader
 // Doesn't do anything fancy (.NET, SxS, AppCompat, or APISet)
@@ -74,8 +75,12 @@ private:
 	auto DoImportResolve(BOOL IsDriver = FALSE);
 
 	// Finds a loaded kernel module by name, loads it, and finds the export address to pre-link modules before mapping.
-	PVOID FindAndLoadKernelExport(const vector<RTL_PROCESS_MODULE_INFORMATION>& SysModules, const char * ModuleName, int Ordinal, const char * ImportName);
+	PVOID PELoader::FindAndLoadKernelExport(const modules_map& SysModules, \
+		std::string ModuleName, \
+		int Ordinal, \
+		const char* ImportName);
 
+	// Resolve imports for a PE in a flat mapped address space in prepartion to be copied into kernel space
 	void DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir);
 
 private:
@@ -87,7 +92,4 @@ private:
 
 	// Size of manually memory mapped image
 	SIZE_T m_MemSize;
-
-	// Map of all kernel modules loaded during kernel export resolution
-	std::map<fnv_t, std::unique_ptr<PEFile>> m_KernelResolveModules;
 };

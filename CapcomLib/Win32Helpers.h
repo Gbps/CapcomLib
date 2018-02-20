@@ -1,6 +1,7 @@
 #pragma once
 
 #include "stdafx.h"
+#include "Winternl.h"
 
 // Auto deleter for C++ smart pointers for Win32 Handles
 struct Win32HandleDeleter
@@ -20,11 +21,11 @@ using unique_handle = std::unique_ptr<void, Win32HandleDeleter>;
 // Auto deleter for C++ smart pointers for Win32 LoadLibrary
 struct Win32ModuleDeleter
 {
-	void operator()(HMODULE handle)
+	void operator()(void* handle)
 	{
 		if (handle != nullptr)
 		{
-			::FreeLibrary(handle);
+			::FreeLibrary((HMODULE)handle);
 		}
 	}
 };
@@ -64,3 +65,45 @@ public:
 		::RtlInitUnicodeString(this, innerStr.c_str());
 	}
 };
+
+#include "ExceptionHelpers.h"
+
+// Converts a native Nt path into a win32 DOS path
+// Uses internal NtCreateFile to get the file handle for the native path
+// Then uses API function GetFinalPathNameByHandle to get the DOS path
+inline std::string NtNativeToWin32(const std::wstring& NtNativePath)
+{
+	DWORD dwRet;
+	OBJECT_ATTRIBUTES  objAttr;
+	HANDLE handle;
+	IO_STATUS_BLOCK    ioStatusBlock = { 0 };
+
+	auto Path = std::string{};
+	Path.resize(MAX_PATH);
+	auto uniNativePath = Win32STLUnicodeString<std::wstring>{ NtNativePath };
+
+	InitializeObjectAttributes(&objAttr, (PUNICODE_STRING)&uniNativePath,
+		OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+		NULL, NULL);
+
+	auto ntstatus = NtCreateFile(&handle,
+		GENERIC_READ,
+		&objAttr, 
+		&ioStatusBlock,
+		NULL,
+		FILE_ATTRIBUTE_NORMAL,
+		FILE_SHARE_READ,
+		FILE_OPEN,
+		FILE_NON_DIRECTORY_FILE,
+		NULL, 
+		0);
+
+	if (!NT_SUCCESS(ntstatus))
+	{
+		return Path;
+	}
+
+	dwRet = GetFinalPathNameByHandleA(handle, &Path[0], MAX_PATH, VOLUME_NAME_DOS);
+	CloseHandle(handle);
+	return Path;
+}

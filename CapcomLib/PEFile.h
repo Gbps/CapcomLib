@@ -80,6 +80,8 @@ public:
 		return m_SizeOfImage;
 	}
 
+
+
 private:
 	// Map a PE file into memory
 	VOID LoadFromFile(const std::wstring & Filename);

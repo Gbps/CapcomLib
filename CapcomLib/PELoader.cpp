@@ -72,13 +72,22 @@ auto PELoader::GetSystemModules()
 		res = NtQuerySystemInformation(SystemModuleInformation, ModuleInfo.get(), initialSize, &actualSize);
 	}
 
-	auto outVec = vector<RTL_PROCESS_MODULE_INFORMATION>{};
+	auto outMap = modules_map{};
 	for (auto i = 0ULL; i < ModuleInfo->NumberOfModules; i++)
 	{
-		outVec.push_back(ModuleInfo->Modules[i]);
+		// Get just the file ImportName of each module
+		auto mod = ModuleInfo->Modules[i];
+		auto fullName = mod.FullPathName;
+		auto name = mod.FullPathName + mod.OffsetToFileName;
+
+		auto strName = string{ name };
+		std::transform(strName.begin(), strName.end(), strName.begin(), [](UCHAR c) { return ::tolower(c); });
+
+		// Add it by value to the vector
+		outMap[name] = ModuleInfo->Modules[i];
 	}
 
-	return outVec;
+	return outMap;
 }
 
 auto PELoader::DoImportResolve(BOOL IsDriver)
@@ -98,27 +107,45 @@ auto PELoader::DoImportResolve(BOOL IsDriver)
 	DoImportResolveKernel(ImageDDir);
 }
 
-PVOID PELoader::FindAndLoadKernelExport(const vector<RTL_PROCESS_MODULE_INFORMATION>& SysModules, 
-	const char* ModuleName, 
+PVOID PELoader::FindAndLoadKernelExport(const modules_map& SysModules,
+	string ModuleName,
 	int Ordinal = -1,
 	const char* ImportName = NULL)
 {
-	// TODO: Check if it's in the loaded module list
+	std::transform(ModuleName.begin(), ModuleName.end(), ModuleName.begin(), [](UCHAR c) { return ::tolower(c); });
 
-	for (const auto& mod : SysModules)
+	// If there's not already a loaded module, find and load the module from the kernel that will resolve the link
+
+	// Ensure it exists in the kernel
+	auto SysMod = SysModules.find(ModuleName);
+	if (SysMod == SysModules.end())
 	{
-		auto offFileName = mod.OffsetToFileName;
-		auto fullName = mod.FullPathName;
-		auto nameStr = fullName + offFileName;
-
-		// If strings are equal
-		/*auto handleBase = unique_module
-		{
-			LoadLibraryExA(fullName, NULL, LOAD_LIBRARY_AS_DATAFILE)
-		};
-		ThrowLdrLastError(L"LoadLibraryExA", handleBase.get());*/
-
+		ThrowLdrError("Driver attempted to import from an unloaded kernel module '%s'. "
+					  "Loading kernel import at runtime is not supported!",
+			          ModuleName.c_str());
 	}
+
+	// This is ugly as hell right here.
+	// NTQSI will return NT namespaces '\SystemRoot\system32\ntoskrnl.exe'
+	// We convert that to wide character -> L'\SystemRoot\system32\ntoskrnl.exe'
+	// THen we use internal APIs ti convert this to a DOS name -> '\\?\C:\Windows\System32\ntoskrnl.exe'
+	// Then convert to wide character -> L'\\?\C:\Windows\System32\ntoskrnl.exe'
+	auto SysModule = SysMod->second;
+	auto FullNameNative = SysModule.FullPathName;
+	auto wFullNameNative = multi2wide(FullNameNative);
+
+	auto FullNameNtPath = NtNativeToWin32(wFullNameNative);
+	if (FullNameNtPath.length() == 0)
+	{
+		ThrowLdrError("Failed to get full path for '%s'", FullNameNative);
+	}
+
+	auto wFullName = multi2wide(FullNameNtPath);
+
+	// Load PE from disk
+	auto ModulePE = make_unique<PEFile>(wFullName);
+		
+	return NULL;
 }
 
 void PELoader::DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir)
@@ -141,12 +168,12 @@ void PELoader::DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir)
 
 		// The address of the table of Name/Ordinal thunks. 
 		// If it's import by ordinal, the ordinal will be there.
-		// If it's import by name, a pointer to the name will be there.
+		// If it's import by ImportName, a pointer to the ImportName will be there.
 		auto NameThunk = FromRVA<IMAGE_THUNK_DATA*>(CurImportEntry->OriginalFirstThunk);
 
 		if (CurImportEntry->OriginalFirstThunk == 0)
 		{
-			// No separate name table
+			// No separate ImportName table
 			NameThunk = IATThunk;
 		}
 
@@ -155,7 +182,7 @@ void PELoader::DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir)
 		{
 			auto ordinal = -1;
 			auto isOrdinalImport = NameThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG;
-			const char* name;
+			const char* ImportName;
 
 			if (isOrdinalImport)
 			{
@@ -164,9 +191,12 @@ void PELoader::DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir)
 			}
 			else
 			{
-				// Import by name
-				name = FromRVA<IMAGE_IMPORT_BY_NAME*>(NameThunk->u1.AddressOfData)->Name;
+				// Import by ImportName
+				ImportName = FromRVA<IMAGE_IMPORT_BY_NAME*>(NameThunk->u1.AddressOfData)->Name;
 			}
+
+			// Call function
+			auto res = FindAndLoadKernelExport(SysModules, ModuleName, ordinal, ImportName);
 
 			if (NameThunk == IATThunk)
 			{
@@ -300,8 +330,8 @@ VOID PELoader::DoRelocateImage()
 
 		if (RelocDDir.VirtualAddress == 0 || RelocDDir.Size == 0)
 		{
-			ThrowLdrError("Relocation data directory VA/Size was 0! VA=%p, Size=%p", 
-				RelocDDir.VirtualAddress, RelocDDir.Size);
+			// No relocations
+			return;
 		}
 
 		// The Delta to add to each relocation entry address to relocate

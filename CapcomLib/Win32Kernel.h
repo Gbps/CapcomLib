@@ -76,5 +76,7 @@ typedef struct _RTL_PROCESS_MODULES
 } RTL_PROCESS_MODULES, *PRTL_PROCESS_MODULES;
 
 
+using modules_map = std::unordered_map<std::string, RTL_PROCESS_MODULE_INFORMATION>;
+
 #define SystemModuleInformation (SYSTEM_INFORMATION_CLASS)11
 #define STATUS_INFO_LENGTH_MISMATCH 0xc0000004

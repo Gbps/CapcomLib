@@ -45,9 +45,6 @@
     <ClInclude Include="KernelHelp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Hashing.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">

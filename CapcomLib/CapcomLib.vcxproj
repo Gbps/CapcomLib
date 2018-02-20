@@ -101,6 +101,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -145,7 +146,6 @@
   <ItemGroup>
     <ClInclude Include="DriverLoader.h" />
     <ClInclude Include="ExceptionHelpers.h" />
-    <ClInclude Include="Hashing.h" />
     <ClInclude Include="Helpers.h" />
     <ClInclude Include="KernelHelp.h" />
     <ClInclude Include="PEFile.h" />
