@@ -4,8 +4,6 @@
 #include "ExceptionHelpers.h"
 #include "Helpers.h"
 
-class PEFileSection;
-
 // Describes a raw PE file in mapped into memory
 class PEFile
 {
@@ -161,3 +159,4 @@ private:
 	*/
 	WORD m_Characteristics;
 };
+

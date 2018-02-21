@@ -6,6 +6,8 @@
 #include "PEFile.h"
 #include "Win32Kernel.h"
 
+class PEFileExport;
+
 // A very simple reflexive PE loader
 // Doesn't do anything fancy (.NET, SxS, AppCompat, or APISet)
 // Based off of some ReactOS code and reinterpreted for C++ :)
@@ -25,7 +27,7 @@ public:
 	// Maps the entire image into a flat area of memory. 
 	// Does not create separate allocations for each section.
 	// Useful for driver modules because their sections are mapped flat with the PE
-	HMODULE MapFlat(DWORD flProtect = PAGE_EXECUTE_READWRITE, BOOL shouldCopyHeaders = TRUE);
+	HMODULE MapFlat(DWORD flProtect = PAGE_EXECUTE_READWRITE, BOOL shouldCopyHeaders = TRUE, BOOL loadAsDataFile = FALSE);
 
 	// Gets a pointer to the end of mapped memory
 	template<typename TargetPtr>
@@ -59,6 +61,9 @@ private:
 	// section. At the moment, this is preferrable for the task at hand!
 	VOID AllocFlat(DWORD flProtect = PAGE_EXECUTE_READWRITE);
 
+	// Get all information for symbols exported by this module
+	std::unordered_map<std::string, PEFileExport> GetExports();
+
 	// Relocates an image in memory by fixing up each address specified in the PE
 	VOID DoRelocateImage();
 
@@ -78,7 +83,7 @@ private:
 	PVOID PELoader::FindAndLoadKernelExport(const modules_map& SysModules, \
 		std::string ModuleName, \
 		int Ordinal, \
-		const char* ImportName);
+		std::string ImportName);
 
 	// Resolve imports for a PE in a flat mapped address space in prepartion to be copied into kernel space
 	void DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir);
@@ -92,4 +97,21 @@ private:
 
 	// Size of manually memory mapped image
 	SIZE_T m_MemSize;
+};
+
+// For ordinal/address exports
+class PEFileExport
+{
+public:
+
+	PEFileExport() {}
+
+	PEFileExport(SIZE_T address, WORD ordinal)
+	{
+		Address = address;
+		Ordinal = ordinal;
+	}
+
+	SIZE_T Address = 0;
+	WORD Ordinal = -1;
 };

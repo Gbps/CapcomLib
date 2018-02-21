@@ -110,9 +110,10 @@ auto PELoader::DoImportResolve(BOOL IsDriver)
 PVOID PELoader::FindAndLoadKernelExport(const modules_map& SysModules,
 	string ModuleName,
 	int Ordinal = -1,
-	const char* ImportName = NULL)
+	string ImportName = NULL)
 {
 	std::transform(ModuleName.begin(), ModuleName.end(), ModuleName.begin(), [](UCHAR c) { return ::tolower(c); });
+	std::transform(ImportName.begin(), ImportName.end(), ImportName.begin(), [](UCHAR c) { return ::tolower(c); });
 
 	// If there's not already a loaded module, find and load the module from the kernel that will resolve the link
 
@@ -128,7 +129,7 @@ PVOID PELoader::FindAndLoadKernelExport(const modules_map& SysModules,
 	// This is ugly as hell right here.
 	// NTQSI will return NT namespaces '\SystemRoot\system32\ntoskrnl.exe'
 	// We convert that to wide character -> L'\SystemRoot\system32\ntoskrnl.exe'
-	// THen we use internal APIs ti convert this to a DOS name -> '\\?\C:\Windows\System32\ntoskrnl.exe'
+	// THen we use internal APIs to convert this to a DOS name -> '\\?\C:\Windows\System32\ntoskrnl.exe'
 	// Then convert to wide character -> L'\\?\C:\Windows\System32\ntoskrnl.exe'
 	auto SysModule = SysMod->second;
 	auto FullNameNative = SysModule.FullPathName;
@@ -143,11 +144,68 @@ PVOID PELoader::FindAndLoadKernelExport(const modules_map& SysModules,
 	auto wFullName = multi2wide(FullNameNtPath);
 
 	// Load PE from disk
-	auto ModulePE = make_unique<PEFile>(wFullName);
-		
+	auto ModulePE = make_unique<PELoader>(wFullName);
+	
+	// Map the module flat as a datafile
+	ModulePE->MapFlat(PAGE_READWRITE, TRUE, TRUE);
+
+	// Resolve exports
+	auto exports = ModulePE->GetExports();
+
+	// Find an export that matches the import
+	auto findExport = exports.find(ImportName);
+
+	if (findExport != exports.end())
+	{
+		// Found export for import
+		return MakePointer<PVOID>(SysModule.ImageBase, findExport->second.Address);
+	}
 	return NULL;
 }
 
+unordered_map<string, PEFileExport> PELoader::GetExports()
+{
+	auto ExportDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_EXPORT);
+	auto ExportsMap = unordered_map<string, PEFileExport>{};
+
+	// No exports
+	if (ExportDDir.VirtualAddress == 0 || ExportDDir.Size == 0)
+	{
+		return ExportsMap;
+	}
+
+	auto ExportDir = FromRVA<PIMAGE_EXPORT_DIRECTORY>(ExportDDir.VirtualAddress);
+
+	// List of function addresses accessed by ordinal
+	auto FuncList = FromRVA<DWORD*>(ExportDir->AddressOfFunctions);
+
+	// List of function names accessed top down
+	auto NameList = FromRVA<DWORD*>(ExportDir->AddressOfNames);
+
+	// List of ordinals accessed top down
+	auto OrdList = FromRVA<WORD*>(ExportDir->AddressOfNameOrdinals);
+
+	// Pre-allocate memory
+	ExportsMap.reserve(ExportDir->NumberOfNames);
+
+	// For each export, store address of function and ordinal
+	for (DWORD i = 0; i < ExportDir->NumberOfNames; i++)
+	{
+		auto name = string{ FromRVA<const char*>(NameList[i]) };
+		auto ord = OrdList[i];
+		auto func = (SIZE_T) FromRVA<PVOID>(FuncList[ord]);
+
+		// Lowercase string
+		std::transform(name.begin(), name.end(), name.begin(), [](UCHAR c) { return ::tolower(c); });
+
+		// Add to map
+		ExportsMap[name].Address = func;
+		ExportsMap[name].Ordinal = ord;
+	}
+
+	return ExportsMap;
+
+}
 void PELoader::DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir)
 {
 	// First entry in import descriptor table
@@ -195,7 +253,7 @@ void PELoader::DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir)
 				ImportName = FromRVA<IMAGE_IMPORT_BY_NAME*>(NameThunk->u1.AddressOfData)->Name;
 			}
 
-			// Call function
+			// Resolve address of import in kernel
 			auto res = FindAndLoadKernelExport(SysModules, ModuleName, ordinal, ImportName);
 
 			if (NameThunk == IATThunk)
@@ -214,7 +272,7 @@ void PELoader::DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir)
 	}
 }
 
-HMODULE PELoader::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders)
+HMODULE PELoader::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders, BOOL loadAsDataFile)
 {
 	// Ensure we've allocated space for the entire image
 	AllocFlat(flProtect);
@@ -242,8 +300,11 @@ HMODULE PELoader::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders)
 	// Do relocations if necessary
 	DoRelocateImage();
 
-	// Resolves imports
-	DoImportResolve(TRUE);
+	if (!loadAsDataFile)
+	{
+		// Resolves imports
+		DoImportResolve(TRUE);
+	}
 
 	return GetMappedBase<HMODULE>();
 }

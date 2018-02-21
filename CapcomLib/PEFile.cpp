@@ -77,6 +77,8 @@ VOID PEFile::LoadFromFile(const wstring& Filename)
 
 }
 
+
+
 // Loader process based off of Blackbone
 // https://github.com/DarthTon/Blackbone/blob/master/src/BlackBone/PE/PEImage.cpp
 VOID PEFile::ParsePEHeaders()
