@@ -32,7 +32,7 @@ public:
 
 	// Calculate an offset from the base of the file
 	template<typename TargetPtr>
-	TargetPtr OffsetFromBase(SIZE_T Offset) const
+	TargetPtr FromRVA(SIZE_T Offset) const
 	{
 		auto ptr = MakePointer<TargetPtr>(m_FileMemoryBase, Offset);
 		if (ptr >= m_FileMemoryEnd || ptr < m_FileMemoryBase)
@@ -77,8 +77,6 @@ public:
 	{
 		return m_SizeOfImage;
 	}
-
-
 
 private:
 	// Map a PE file into memory

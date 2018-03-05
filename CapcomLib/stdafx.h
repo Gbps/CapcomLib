@@ -27,4 +27,5 @@
 #include <algorithm>
 #include <locale>
 #include <codecvt>
+#include <list>
 #include <winternl.h>
