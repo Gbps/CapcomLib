@@ -53,7 +53,7 @@ public:
 	// Maps the entire image into a flat area of memory. 
 	// Does not create separate allocations for each section.
 	// Useful for driver modules because their sections are mapped flat with the PE
-	HMODULE MapFlat(DWORD flProtect = PAGE_EXECUTE_READWRITE, BOOL shouldCopyHeaders = TRUE, BOOL loadAsDataFile = FALSE);
+	HMODULE MapFlat(DWORD flProtect = PAGE_EXECUTE_READWRITE, BOOL shouldCopyHeaders = TRUE, BOOL loadAsDataFile = FALSE, PVOID LoaderBase = 0);
 
 	// Gets a pointer to the end of mapped memory
 	template<typename TargetPtr>

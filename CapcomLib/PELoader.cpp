@@ -109,6 +109,7 @@ shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 	auto LoadedMod = PEImage::MappedModules.find(ModuleName);
 	if (LoadedMod != PEImage::MappedModules.end())
 	{
+		Util::DebugPrint("[CACHED]\n");
 		return shared_ptr<PEImage>(LoadedMod->second);
 	}
 
@@ -143,12 +144,12 @@ shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 	// Load PE from disk
 	auto ModulePE = make_shared<PEImage>( wFullName );
 
-	// Map the module flat as a datafile
-	ModulePE->MapFlat(PAGE_READWRITE, TRUE, TRUE);
+	// Map the module flat
+	// LoaderBase = SysModule.ImageBase -- Our module is actually mapped in the kernel, so when we resolve exports
+	//                                     we want to resolve to the kernel address, not our locally mapped one
+	auto res = ModulePE->MapFlat(PAGE_READWRITE, TRUE, TRUE, SysModule.ImageBase);
 
-	// Our module is actually mapped in the kernel, so when we resolve exports
-	// we want to resolve to the kernel address, not our locally mapped one
-	ModulePE->m_ActualBaseAddress = SysModule.ImageBase;
+	Util::DebugPrint("[MAPPED %p => %p]\n", SysModule.ImageBase, res);
 
 	return ModulePE;
 }
@@ -160,7 +161,7 @@ SIZE_T PEImage::FindImport(
 	std::transform(ImportName.begin(), ImportName.end(), ImportName.begin(), [](UCHAR c) { return ::tolower(c); });
 
 	// Load exports
-	auto exports = GetExports();
+	const auto& exports = GetExports();
 
 	// Import by name
 	if (Ordinal == -1)
@@ -204,7 +205,7 @@ const exports_hashmap& PEImage::GetExports()
 		return m_Exports;
 	}
 
-	auto ExportDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_EXPORT);
+	const auto& ExportDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_EXPORT);
 
 	// No exports
 	if (ExportDDir.VirtualAddress == 0 || ExportDDir.Size == 0)
@@ -227,10 +228,30 @@ const exports_hashmap& PEImage::GetExports()
 	m_Exports.clear();
 
 	// Pre-allocate memory
-	m_Exports.reserve(ExportDir->NumberOfNames);
+	m_Exports.reserve(ExportDir->NumberOfFunctions);
+
+	// Number of export by ordinal only
+	WORD i = 0;
+	for (; i < (ExportDir->NumberOfFunctions - ExportDir->NumberOfNames); i++)
+	{
+		auto func = FuncList[i];
+
+		// Extreme hack to make a valid std::string that won't interfere with the other strings
+		// C++11 wew
+		auto temp = std::string{ 2 };
+		*(WORD*)(&temp[0]) = i;
+
+		auto funcAddr = (SIZE_T)((SIZE_T)GetActualBase() + func);
+		auto ordinal = i;
+		auto entry = PEFileExport{ funcAddr, ordinal };
+
+		m_Exports.emplace(make_pair(temp, entry));
+	}
+
+	WORD ordinalBase = i+1;
 
 	// For each export, store address of function and ordinal
-	for (WORD i = 0; i < ExportDir->NumberOfNames; i++)
+	for (i = 0; i < ExportDir->NumberOfNames; i++)
 	{
 		auto name = string{ FromRVA<const char*>(NameList[i]) };
 		auto nameOrdinal = NameOrdinalList[i];
@@ -239,9 +260,14 @@ const exports_hashmap& PEImage::GetExports()
 		// Lowercase string
 		std::transform(name.begin(), name.end(), name.begin(), [](UCHAR c) { return ::tolower(c); });
 		
-		// Use actual base, if mapping externally
-		m_Exports[name].Address = (SIZE_T)((SIZE_T)GetActualBase() + func);
-		m_Exports[name].Ordinal = i;
+		// Use actual base, if mapping externally.
+		// Otherwise, use our local mapped base.
+
+		auto funcAddr = (SIZE_T)((SIZE_T)GetActualBase() + func);
+		auto ordinal = (WORD)(ordinalBase + i);
+		auto entry = PEFileExport{ funcAddr, ordinal };
+
+		m_Exports.emplace(make_pair(name, entry));
 	}
 
 	return m_Exports;
@@ -255,7 +281,7 @@ void PEImage::LinkImage(BOOL IsKernel)
 		GetSystemModules();
 	}
 
-	auto ImportDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_IMPORT);
+	const auto& ImportDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_IMPORT);
 
 	// First entry in import descriptor table
 	auto CurImportEntry = MakePointer<PIMAGE_IMPORT_DESCRIPTOR>(GetMappedBase<>(), ImportDDir.VirtualAddress);
@@ -269,6 +295,7 @@ void PEImage::LinkImage(BOOL IsKernel)
 		shared_ptr<PEImage> TargetModule;
 		if (IsKernel)
 		{
+			Util::DebugPrint("Import from %s... ", ModuleName);
 			TargetModule = FindOrMapKernelDependency(ModuleName);
 		}
 		else
@@ -316,23 +343,32 @@ void PEImage::LinkImage(BOOL IsKernel)
 					ThrowLdrError("Could not find import ('%s', %i) for module", ImportName, ordinal);
 				}
 				
-				auto resolvedAddr = MakePointer<PVOID>(TargetModule->GetActualBase(), addr);
-				auto IATAddr = FromRVA<SIZE_T*>(IATThunk->u1.Function);
-				*IATAddr = (SIZE_T)resolvedAddr;
+				// IAT
+				IATThunk->u1.Function = (SIZE_T)addr;
+
+				Util::DebugPrint("\t%s => Addr: 0x%I64X, IAT: %p\n", ImportName, addr - (SIZE_T)TargetModule->GetActualBase(), &IATThunk->u1.Function);
+
 			}
 			else
 			{
 				throw exception("Not implemented");
 			}
 
-			NameThunk++;
-			IATThunk++;
+			if (NameThunk == IATThunk)
+			{
+				NameThunk++;
+			}
+			else
+			{
+				NameThunk++;
+				IATThunk++;
+			}
 		}
 
 	}
 }
 
-HMODULE PEImage::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders, BOOL loadAsDataFile)
+HMODULE PEImage::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders, BOOL loadAsDataFile, PVOID LoaderBase)
 {
 	// Ensure we've allocated space for the entire image
 	AllocFlat(flProtect);
@@ -360,14 +396,22 @@ HMODULE PEImage::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders, BOOL loadAsDat
 	// Do relocations if necessary
 	DoRelocateImage();
 
+	// If there's a custom loader base, set it here
+	// Useful if the module is preparing to be mapped elsewhere, like the kernel
+	if (LoaderBase)
+	{
+		m_ActualBaseAddress = LoaderBase;
+	}
+
 	if (!loadAsDataFile)
 	{
-		// Resolves imports
+		// Rescursively resolves imports when not loaded as a data file
 		LinkImage(TRUE);
 	}
 
 	return GetMappedBase<HMODULE>();
 }
+
 
 VOID PEImage::AllocFlat(DWORD flProtect)
 {

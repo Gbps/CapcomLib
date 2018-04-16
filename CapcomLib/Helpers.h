@@ -50,3 +50,18 @@ inline std::wstring multi2wide(const std::string& str, UINT codePage = CP_THREAD
 
 	return str2;
 }
+
+// Header only utility class... should have made this a long time ago
+class Util
+{
+public:
+	inline static void DebugPrint(const char* fmt, ...)
+	{
+#if _DEBUG
+		va_list args;
+		va_start(args, fmt);
+		vprintf(fmt, args);
+		va_end(args);
+#endif
+	}
+};
