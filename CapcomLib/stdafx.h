@@ -29,3 +29,5 @@
 #include <codecvt>
 #include <list>
 #include <winternl.h>
+
+#include "Win32Kernel.h"

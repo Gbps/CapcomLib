@@ -3,27 +3,32 @@
 #include "PELoader.h"
 #include "Helpers.h"
 #include "ExceptionHelpers.h"
-#include "Win32Kernel.h"
 
 using namespace std;
 
 #pragma comment(lib,"ntdll.lib")
 
-PELoader::PELoader(const std::wstring& Filename)
+// Other modules loaded and mapped for the linking process only
+std::unordered_map<std::string, std::shared_ptr<PEImage>> PEImage::MappedModules;
+
+// Modules of the current system when the linking process begins
+modules_map PEImage::KernelModules;
+
+PEImage::PEImage(const std::wstring& Filename)
 {
 	m_PE = make_unique<PEFile>(Filename);
 }
 
-PELoader::PELoader(unique_ptr<PEFile> LoadedFile)
+PEImage::PEImage(unique_ptr<PEFile> LoadedFile)
 {
 	m_PE = move(LoadedFile);
 }
 
-PELoader::~PELoader()
+PEImage::~PEImage()
 {
 }
 
-VOID PELoader::_MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size)
+VOID PEImage::_MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size)
 {
 	auto targetEnd = TargetVA + Size;
 
@@ -40,8 +45,14 @@ VOID PELoader::_MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size)
 	RtlCopyMemory(TargetVA, SourceVA, Size);
 }
 
-auto PELoader::GetSystemModules()
+void PEImage::GetSystemModules()
 {
+	if (PEImage::KernelModules.size() > 0)
+	{
+		// Don't update more than once
+		return;
+	}
+
 	// Try a size and then increase if necessary
 	auto initialSize = 0x10000;
 	auto actualSize = ULONG{};
@@ -72,7 +83,8 @@ auto PELoader::GetSystemModules()
 		res = NtQuerySystemInformation(SystemModuleInformation, ModuleInfo.get(), initialSize, &actualSize);
 	}
 
-	auto outMap = modules_map{};
+	PEImage::KernelModules.reserve(ModuleInfo->NumberOfModules);
+
 	for (auto i = 0ULL; i < ModuleInfo->NumberOfModules; i++)
 	{
 		// Get just the file ImportName of each module
@@ -84,40 +96,28 @@ auto PELoader::GetSystemModules()
 		std::transform(strName.begin(), strName.end(), strName.begin(), [](UCHAR c) { return ::tolower(c); });
 
 		// Add it by value to the vector
-		outMap[name] = ModuleInfo->Modules[i];
+		PEImage::KernelModules[name] = ModuleInfo->Modules[i];
 	}
-
-	return outMap;
 }
 
-auto PELoader::DoImportResolve(BOOL IsDriver)
-{
-	auto ImageDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_IMPORT);
-	if (ImageDDir.Size == 0 || ImageDDir.VirtualAddress == 0)
-	{
-		// No imports... go figure
-		return;
-	}
-
-	if (!IsDriver)
-	{
-		ThrowLdrError("Ring3 not supported yet!");
-	}
-
-	DoImportResolveKernel(ImageDDir);
-}
-
-loaded_kmodule_entry PELoader::FindAndLoadKernelModule(const modules_map& SysModules, string ModuleName)
+shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 {
 	// Lowercase name
 	std::transform(ModuleName.begin(), ModuleName.end(), ModuleName.begin(), [](UCHAR c) { return ::tolower(c); });
 
-	// Ensure it exists already loaded in the kernel
-	auto SysMod = SysModules.find(ModuleName);
-	if (SysMod == SysModules.end())
+	// If it's been loaded already, use that one.
+	auto LoadedMod = PEImage::MappedModules.find(ModuleName);
+	if (LoadedMod != PEImage::MappedModules.end())
+	{
+		return shared_ptr<PEImage>(LoadedMod->second);
+	}
+
+	// Find the modules from NTQSI output
+	auto SysMod = PEImage::KernelModules.find(ModuleName);
+	if (SysMod == PEImage::KernelModules.end())
 	{
 		ThrowLdrError("Driver attempted to import from an unloaded kernel module '%s'. "
-			"Loading kernel import at runtime is not supported!",
+			"Loading kernel imports at runtime is not supported!",
 			ModuleName.c_str());
 	}
 
@@ -141,35 +141,36 @@ loaded_kmodule_entry PELoader::FindAndLoadKernelModule(const modules_map& SysMod
 	auto wFullName = multi2wide(FullNameNtPath);
 
 	// Load PE from disk
-	auto ModulePE = make_shared<PELoader>(wFullName);
+	auto ModulePE = make_shared<PEImage>( wFullName );
 
 	// Map the module flat as a datafile
 	ModulePE->MapFlat(PAGE_READWRITE, TRUE, TRUE);
 
-	return make_pair(SysModule.ImageBase, move(ModulePE));
+	// Our module is actually mapped in the kernel, so when we resolve exports
+	// we want to resolve to the kernel address, not our locally mapped one
+	ModulePE->m_ActualBaseAddress = SysModule.ImageBase;
+
+	return ModulePE;
 }
 
-PVOID PELoader::FindAndLoadKernelExport(
-	shared_ptr<PELoader> ModulePE,
-	PVOID KernelLoadedBase,
-	string ImportName,
-	int Ordinal )
+SIZE_T PEImage::FindImport(
+	std::string ImportName,
+	int Ordinal)
 {
 	std::transform(ImportName.begin(), ImportName.end(), ImportName.begin(), [](UCHAR c) { return ::tolower(c); });
-	
-	// Load exports
-	auto exports = ModulePE->GetExports();
 
+	// Load exports
+	auto exports = GetExports();
+
+	// Import by name
 	if (Ordinal == -1)
 	{
-		// Import by name (average case)
-
 		// Find an export name that matches the import
 		auto findExport = exports.find(ImportName);
 		if (findExport != exports.end())
 		{
 			// Return pointer offset from the image loaded in kernel already
-			return MakePointer<PVOID>(KernelLoadedBase, findExport->second.Address);
+			return findExport->second.Address;
 		}
 		else
 		{
@@ -177,14 +178,14 @@ PVOID PELoader::FindAndLoadKernelExport(
 			return NULL;
 		}
 	}
+	// Import by ordinal
 	else
 	{
-		// Import by ordinal, slower case (funny actually, as ordinal import is an 'optimization')
 		auto findExport = find_if(exports.begin(), exports.end(), [&Ordinal](const auto& e) { return e.second.Ordinal == Ordinal; });
 		if (findExport != exports.end())
 		{
 			// Return pointer offset from the image loaded in kernel already
-			return MakePointer<PVOID>(KernelLoadedBase, findExport->second.Address);
+			return findExport->second.Address;
 		}
 		else
 		{
@@ -195,8 +196,14 @@ PVOID PELoader::FindAndLoadKernelExport(
 	return NULL;
 }
 
-const exports_hashmap& PELoader::GetExports()
+const exports_hashmap& PEImage::GetExports()
 {
+	// Already resolved
+	if (m_Exports.size() > 0)
+	{
+		return m_Exports;
+	}
+
 	auto ExportDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_EXPORT);
 
 	// No exports
@@ -214,43 +221,60 @@ const exports_hashmap& PELoader::GetExports()
 	auto NameList = FromRVA<DWORD*>(ExportDir->AddressOfNames);
 
 	// List of ordinals accessed top down
-	auto OrdList = FromRVA<WORD*>(ExportDir->AddressOfNameOrdinals);
+	auto NameOrdinalList = FromRVA<WORD*>(ExportDir->AddressOfNameOrdinals);
+
+	// Clear old entries if they exist
+	m_Exports.clear();
 
 	// Pre-allocate memory
 	m_Exports.reserve(ExportDir->NumberOfNames);
 
 	// For each export, store address of function and ordinal
-	for (DWORD i = 0; i < ExportDir->NumberOfNames; i++)
+	for (WORD i = 0; i < ExportDir->NumberOfNames; i++)
 	{
 		auto name = string{ FromRVA<const char*>(NameList[i]) };
-		auto ord = OrdList[i];
-		auto func = (SIZE_T) FromRVA<PVOID>(FuncList[ord]);
+		auto nameOrdinal = NameOrdinalList[i];
+		auto func = FuncList[nameOrdinal];
 
 		// Lowercase string
 		std::transform(name.begin(), name.end(), name.begin(), [](UCHAR c) { return ::tolower(c); });
-
-		// Add to map
-		m_Exports[name].Address = func;
-		m_Exports[name].Ordinal = ord;
+		
+		// Use actual base, if mapping externally
+		m_Exports[name].Address = (SIZE_T)((SIZE_T)GetActualBase() + func);
+		m_Exports[name].Ordinal = i;
 	}
 
 	return m_Exports;
 }
 
-void PELoader::DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir)
+void PEImage::LinkImage(BOOL IsKernel)
 {
-	// First entry in import descriptor table
-	auto CurImportEntry = MakePointer<PIMAGE_IMPORT_DESCRIPTOR>(GetMappedBase<>(), ImageDDir.VirtualAddress);
+	// Update the kernel modules list if necessary
+	if (IsKernel)
+	{
+		GetSystemModules();
+	}
 
-	// Use NtQuerySystemInformation to grab base addresses of necessary modules
-	auto SysModules = GetSystemModules();
+	auto ImportDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_IMPORT);
+
+	// First entry in import descriptor table
+	auto CurImportEntry = MakePointer<PIMAGE_IMPORT_DESCRIPTOR>(GetMappedBase<>(), ImportDDir.VirtualAddress);
 
 	// Go through each entry until Name is NULL (the all-null entry that acts as the terminator)
-	// NOTE: 64-bit only
 	for (; CurImportEntry->Name; CurImportEntry++)
 	{
 		// Name of the module to import from ex. 'ntoskrnl.exe'
 		auto ModuleName = FromRVA<char*>(CurImportEntry->Name);
+
+		shared_ptr<PEImage> TargetModule;
+		if (IsKernel)
+		{
+			TargetModule = FindOrMapKernelDependency(ModuleName);
+		}
+		else
+		{
+			throw exception("Not implemented");
+		}
 
 		// The address of the table of thunks containing the IAT entry to place the resolved function once when we get it
 		auto IATThunk = FromRVA<IMAGE_THUNK_DATA*>(CurImportEntry->FirstThunk);
@@ -284,30 +308,31 @@ void PELoader::DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir)
 				ImportName = FromRVA<IMAGE_IMPORT_BY_NAME*>(NameThunk->u1.AddressOfData)->Name;
 			}
 
-			// TODO:Import into m_Imports instead here!
-
-			/*if (resolvedAddr == NULL)
+			if (IsKernel)
 			{
-				ThrowLdrError("Failed to load import '%s' from '%s'", ImportName, ModuleName);
-			}*/
-
-			if (NameThunk == IATThunk)
-			{
-				// Single table
-				NameThunk++;
+				auto addr = TargetModule->FindImport(ImportName, ordinal);
+				if (!addr)
+				{
+					ThrowLdrError("Could not find import ('%s', %i) for module", ImportName, ordinal);
+				}
+				
+				auto resolvedAddr = MakePointer<PVOID>(TargetModule->GetActualBase(), addr);
+				auto IATAddr = FromRVA<SIZE_T*>(IATThunk->u1.Function);
+				*IATAddr = (SIZE_T)resolvedAddr;
 			}
 			else
 			{
-				// Two tables
-				NameThunk++;
-				IATThunk++;
+				throw exception("Not implemented");
 			}
+
+			NameThunk++;
+			IATThunk++;
 		}
 
 	}
 }
 
-HMODULE PELoader::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders, BOOL loadAsDataFile)
+HMODULE PEImage::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders, BOOL loadAsDataFile)
 {
 	// Ensure we've allocated space for the entire image
 	AllocFlat(flProtect);
@@ -326,7 +351,7 @@ HMODULE PELoader::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders, BOOL loadAsDa
 	auto memSections = m_PE->GetSections();
 	for (const auto& sec : memSections)
 	{
-		auto secData = m_PE->FromRVA<PBYTE>(sec.PointerToRawData);
+		auto secData = m_PE->FromOffset<PBYTE>(sec.PointerToRawData);
 		auto targetVA = FromRVA<PBYTE>(sec.VirtualAddress);
 
 		_MapSafeCopy(targetVA, secData, sec.SizeOfRawData);
@@ -338,13 +363,13 @@ HMODULE PELoader::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders, BOOL loadAsDa
 	if (!loadAsDataFile)
 	{
 		// Resolves imports
-		DoImportResolve(TRUE);
+		LinkImage(TRUE);
 	}
 
 	return GetMappedBase<HMODULE>();
 }
 
-VOID PELoader::AllocFlat(DWORD flProtect)
+VOID PEImage::AllocFlat(DWORD flProtect)
 {
 	if (m_Mem) return;
 
@@ -358,9 +383,12 @@ VOID PELoader::AllocFlat(DWORD flProtect)
 
 	m_Mem = move(alloc);
 	m_MemSize = totalSize;
+
+	// Can be overwritten later, in the case of kernel exports
+	m_ActualBaseAddress = m_Mem.get();
 }
 
-auto PELoader::ProcessRelocationBlocks(PWORD BlocksAddress, PULONG RelocBaseAddress, SIZE_T RelocDelta, SIZE_T Count)
+auto PEImage::ProcessRelocationBlocks(PWORD BlocksAddress, PULONG RelocBaseAddress, SIZE_T RelocDelta, SIZE_T Count)
 {
 	auto CurrentBlock = BlocksAddress;
 	for (SIZE_T i = 0; i < Count; i++)
@@ -412,7 +440,7 @@ auto PELoader::ProcessRelocationBlocks(PWORD BlocksAddress, PULONG RelocBaseAddr
 	return (PIMAGE_BASE_RELOCATION)CurrentBlock;
 }
 
-VOID PELoader::DoRelocateImage()
+VOID PEImage::DoRelocateImage()
 {
 	auto BaseAddress = GetMappedBase<PBYTE>();
 	if (m_PE->HasFileCharacteristic(IMAGE_FILE_RELOCS_STRIPPED))

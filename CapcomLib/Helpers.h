@@ -25,9 +25,6 @@ TargetType MakePointer(void* anyptr, SIZE_T offset)
 	return reinterpret_cast<TargetType>(reinterpret_cast<SIZE_T>(anyptr) + offset);
 }
 
-// pls
-#define _SILENCE_CXX17_CODECVT_HEADER_DEPRECIATION_WARNING
-
 // Convert string to wstring
 inline std::wstring multi2wide(const std::string& str, UINT codePage = CP_THREAD_ACP)
 {

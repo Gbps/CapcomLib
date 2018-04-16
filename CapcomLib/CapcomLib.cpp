@@ -25,7 +25,7 @@ PVOID NTAPI LoaderPayload(MmGetSystemRoutineFunc _MmGetSystemRoutineAddress)
 
 int main()
 {
-	PELoader loader(L"Capcom.sys");
+	PEImage loader(L"Capcom.sys");
 	loader.MapFlat();
 
 	/*DriverLoader loader;

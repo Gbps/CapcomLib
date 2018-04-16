@@ -6,7 +6,7 @@
 #include "PEFile.h"
 #include "Win32Kernel.h"
 
-class PELoader;
+class PEImage;
 
 // For ordinal/address exports
 class PEFileExport
@@ -15,30 +15,13 @@ public:
 
 	PEFileExport() {}
 
-	PEFileExport(SIZE_T address, WORD ordinal)
+	PEFileExport(SIZE_T addressRVA, WORD ordinal = -1)
 	{
-		Address = address;
+		Address = addressRVA;
 		Ordinal = ordinal;
 	}
 
-	SIZE_T Address = 0;
-	WORD Ordinal = -1;
-};
-
-// For ordinal/address imports
-class PEFileImport
-{
-public:
-
-	PEFileImport() {}
-
-	PEFileImport(const std::string& name, WORD ordinal)
-	{
-		Name = name;
-		Ordinal = ordinal;
-	}
-
-	std::string Name;
+	SIZE_T Address;
 	WORD Ordinal = -1;
 };
 
@@ -47,24 +30,24 @@ public:
 using exports_hashmap = std::unordered_map<std::string, PEFileExport>;
 
 // Import list
-using imports_list = std::list<PEFileImport>;
+using imports_list = std::list<PEFileExport>;
 
-// Pair of (KLoadedImageBase, PELoader)
-using loaded_kmodule_entry = std::pair<PVOID, std::shared_ptr<PELoader>>;
+// Pair of (KLoadedImageBase, PEImage)
+using loaded_kmodule_entry = std::pair<PVOID, std::shared_ptr<PEImage>>;
 
 // A very simple reflexive PE loader
 // Doesn't do anything fancy (.NET, SxS, AppCompat, or APISet)
 // Based off of some ReactOS code and reinterpreted for C++ :)
-class PELoader
+class PEImage
 {
 public:
 	// Load a PE file from the path specified by Filename
-	PELoader(const std::wstring& Filename);
+	PEImage(const std::wstring& Filename);
 
 	// PE file is already loaded
-	PELoader(std::unique_ptr<PEFile> LoadedFile);
+	PEImage(std::unique_ptr<PEFile> LoadedFile);
 
-	~PELoader();
+	~PEImage();
 
 	// Maps a PE file into memory as a loaded image. 
 	// Maps the entire image into a flat area of memory. 
@@ -98,6 +81,12 @@ public:
 		return ptr;
 	}
 
+	// If this module is already loaded in memory elsewhere (like the kernel), returns its base address
+	auto GetActualBase() const
+	{
+		return m_ActualBaseAddress;
+	}
+
 private:
 	// Use VirtualAlloc to allocate memory to map the entire image
 	// NOTE: This is a flat allocator. The image will be in one large mapped
@@ -113,28 +102,22 @@ private:
 	// Safe copy to mapped sections
 	VOID _MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size);
 
-	// Uses undocumented NtQuerySystemInformation to leak addresses of system modules
-	auto GetSystemModules();
+	// Uses NtQuerySystemInformation to get addresses of system modules
+	void GetSystemModules();
 
 	// Resolves import for manually mapped image
-	auto DoImportResolve(BOOL IsDriver = FALSE);
-
+	void PEImage::LinkImage(BOOL IsKernel);
+	
 	// Loads a kernel module off of the disk by name, using information from NTQSI
-	// Returns a pair of the ImageBase and the loaded kernel module (unmapped)
-	loaded_kmodule_entry FindAndLoadKernelModule(const modules_map & SysModules, std::string ModuleName);
+	std::shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(std::string ModuleName);
 
-	// Finds a loaded kernel module by name, loads it, and finds the export address to pre-link modules before mapping.
-	PVOID PELoader::FindAndLoadKernelExport(
-		std::shared_ptr<PELoader> ModulePE,
-		PVOID KernelLoadedBase,
+	// Finds the export RVA of either a name or ordinal import
+	SIZE_T PEImage::FindImport(
 		std::string ImportName,
-		int Ordinal = -1 );
+		int Ordinal = -1);
 
-	// Loads all export entires for this module. Will load additional modules if necessary for forward imports
-	const exports_hashmap& PELoader::GetExports();
-
-	// Resolve imports for a PE in a flat mapped address space in prepartion to be copied into kernel space
-	void DoImportResolveKernel(IMAGE_DATA_DIRECTORY &ImageDDir);
+	// Loads all export entires for this module.
+	const exports_hashmap& PEImage::GetExports();
 
 private:
 	// Loaded and parsed PE File
@@ -146,9 +129,15 @@ private:
 	// Size of manually memory mapped image
 	SIZE_T m_MemSize;
 
+	// Actual base address for linking modules in-place
+	PVOID m_ActualBaseAddress;
+
 	// All export entries resolved for this module
 	exports_hashmap m_Exports;
 
-	// All import entries resolved for this module
-	imports_list m_Imports;
+	// Other modules loaded and mapped for the linking process only
+	static std::unordered_map<std::string, std::shared_ptr<PEImage>> MappedModules;
+
+	// Modules of the current system when the linking process begins
+	static modules_map KernelModules;
 };

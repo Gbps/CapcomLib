@@ -1,6 +1,4 @@
 #pragma once
-#include "stdafx.h"
-#include "winternl.h"
 
 // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/wdm/ne-wdm-_pool_type
 typedef enum _POOL_TYPE {
@@ -37,12 +35,12 @@ typedef enum _POOL_TYPE {
 	UNICODE_STRING _var = { sizeof(_string)-sizeof(WCHAR), sizeof(_string), (PWCH)_var ## _buffer } \
 	__pragma(warning(pop))
 
-// https://forum.sysinternals.com/using-rtlinitunicodestring-in-cpp-code_topic20109.html
-FORCEINLINE VOID RtlInitUnicodeString(PUNICODE_STRING DestinationString, const WCHAR * SourceString)
-{
-	DestinationString->Buffer = (PWCHAR)(SourceString);
-	DestinationString->MaximumLength = DestinationString->Length = (USHORT)(wcslen(SourceString) * sizeof(WCHAR));
-}
+//// https://forum.sysinternals.com/using-rtlinitunicodestring-in-cpp-code_topic20109.html
+//inline VOID RtlInitUnicodeString(PUNICODE_STRING DestinationString, const WCHAR * SourceString)
+//{
+//	DestinationString->Buffer = (PWCHAR)(SourceString);
+//	DestinationString->MaximumLength = DestinationString->Length = (USHORT)(wcslen(SourceString) * sizeof(WCHAR));
+//}
 
 /// https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/wdm/nf-wdm-exallocatepoolwithtag
 typedef PVOID(NTAPI *ExAllocatePoolWithTagFunc)(

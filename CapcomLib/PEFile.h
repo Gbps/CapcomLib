@@ -32,7 +32,7 @@ public:
 
 	// Calculate an offset from the base of the file
 	template<typename TargetPtr>
-	TargetPtr FromRVA(SIZE_T Offset) const
+	TargetPtr FromOffset(SIZE_T Offset) const
 	{
 		auto ptr = MakePointer<TargetPtr>(m_FileMemoryBase, Offset);
 		if (ptr >= m_FileMemoryEnd || ptr < m_FileMemoryBase)
