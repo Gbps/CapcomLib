@@ -22,7 +22,7 @@ public:
 	SIZE_T GetTotalMappedSize();
 
 	// Get sections to map memory of PE
-	auto GetSections() const
+	const auto& GetSections() const
 	{
 		return m_MemSections;
 	}
@@ -74,6 +74,18 @@ public:
 
 	// Gets the NtHeader SizeOfImage
 	auto GetImageSize() const
+	{
+		return m_SizeOfImage;
+	}
+
+	// Returns entry point RVA
+	auto GetEntryPointRVA() const
+	{
+		return m_AddressOfEntryPointRVA;
+	}
+
+	// Returns SizeOfImage field
+	auto GetSizeOfImage() const
 	{
 		return m_SizeOfImage;
 	}

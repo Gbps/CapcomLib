@@ -49,11 +49,8 @@ public:
 
 	~PEImage();
 
-	// Maps a PE file into memory as a loaded image. 
-	// Maps the entire image into a flat area of memory. 
-	// Does not create separate allocations for each section.
-	// Useful for driver modules because their sections are mapped flat with the PE
-	HMODULE MapFlat(DWORD flProtect = PAGE_EXECUTE_READWRITE, BOOL shouldCopyHeaders = TRUE, BOOL loadAsDataFile = FALSE, PVOID LoaderBase = 0);
+	// Maps and links a module in preparation to be copied directly to the kernel
+	HMODULE MapForKernel();
 
 	// Gets a pointer to the end of mapped memory
 	template<typename TargetPtr>
@@ -87,11 +84,30 @@ public:
 		return m_ActualBaseAddress;
 	}
 
+	// Gets the entry point RVA
+	auto GetEntryPointRVA() const
+	{
+		return m_PE->GetEntryPointRVA();
+	}
+
+	// Gets the total size of the entire mapped region
+	auto GetMappedSize() const
+	{
+		return m_PE->GetSizeOfImage();
+	}
+
 private:
+
+	// Maps a PE file into memory as a loaded image. 
+	// Maps the entire image into a flat area of memory. 
+	// Does not create separate allocations for each section.
+	// Useful for driver modules because their sections are mapped flat with the PE
+	HMODULE MapFlat(BOOL isForKernel = TRUE, PVOID loaderBase = 0, BOOL loadAsDataFile = FALSE);
+
 	// Use VirtualAlloc to allocate memory to map the entire image
 	// NOTE: This is a flat allocator. The image will be in one large mapped
 	// section. At the moment, this is preferrable for the task at hand!
-	VOID AllocFlat(DWORD flProtect = PAGE_EXECUTE_READWRITE);
+	VOID AllocFlat();
 
 	// Relocates an image in memory by fixing up each address specified in the PE
 	VOID DoRelocateImage();

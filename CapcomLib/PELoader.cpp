@@ -28,6 +28,11 @@ PEImage::~PEImage()
 {
 }
 
+HMODULE PEImage::MapForKernel()
+{
+	return MapFlat(TRUE, FALSE, FALSE);
+}
+
 VOID PEImage::_MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size)
 {
 	auto targetEnd = TargetVA + Size;
@@ -145,9 +150,9 @@ shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 	auto ModulePE = make_shared<PEImage>( wFullName );
 
 	// Map the module flat
-	// LoaderBase = SysModule.ImageBase -- Our module is actually mapped in the kernel, so when we resolve exports
+	// loaderBase = SysModule.ImageBase -- Our module is actually mapped in the kernel, so when we resolve exports
 	//                                     we want to resolve to the kernel address, not our locally mapped one
-	auto res = ModulePE->MapFlat(PAGE_READWRITE, TRUE, TRUE, SysModule.ImageBase);
+	auto res = ModulePE->MapFlat(TRUE, SysModule.ImageBase, TRUE);
 
 	Util::DebugPrint("[MAPPED %p => %p]\n", SysModule.ImageBase, res);
 
@@ -347,7 +352,6 @@ void PEImage::LinkImage(BOOL IsKernel)
 				IATThunk->u1.Function = (SIZE_T)addr;
 
 				Util::DebugPrint("\t%s => Addr: 0x%I64X, IAT: %p\n", ImportName, addr - (SIZE_T)TargetModule->GetActualBase(), &IATThunk->u1.Function);
-
 			}
 			else
 			{
@@ -368,23 +372,21 @@ void PEImage::LinkImage(BOOL IsKernel)
 	}
 }
 
-HMODULE PEImage::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders, BOOL loadAsDataFile, PVOID LoaderBase)
+HMODULE PEImage::MapFlat(BOOL isForKernel, PVOID loaderBase, BOOL loadAsDataFile)
 {
 	// Ensure we've allocated space for the entire image
-	AllocFlat(flProtect);
+	AllocFlat();
 
-	if (shouldCopyHeaders)
-	{
-		// Copy the section headers
-		auto HeadersBase = m_PE->GetHeadersBase();
-		auto HeadersSize = m_PE->GetHeadersSize();
+	auto HeadersBase = m_PE->GetHeadersBase();
+	auto HeadersSize = m_PE->GetHeadersSize();
 
-		_MapSafeCopy(GetMappedBase<PBYTE>(), MakePointer<PBYTE>(HeadersBase), HeadersSize);
-	}
+	// Copy PE headers
+	_MapSafeCopy(GetMappedBase<PBYTE>(), MakePointer<PBYTE>(HeadersBase), HeadersSize);
 
 	// Copy each section into its preferred location
 	// NOTE: Does not check for overlapping sections
-	auto memSections = m_PE->GetSections();
+	// When mapping flat, unfilled space between sections will be filled with 00s
+	const auto& memSections = m_PE->GetSections();
 	for (const auto& sec : memSections)
 	{
 		auto secData = m_PE->FromOffset<PBYTE>(sec.PointerToRawData);
@@ -398,22 +400,22 @@ HMODULE PEImage::MapFlat(DWORD flProtect, BOOL shouldCopyHeaders, BOOL loadAsDat
 
 	// If there's a custom loader base, set it here
 	// Useful if the module is preparing to be mapped elsewhere, like the kernel
-	if (LoaderBase)
+	if (loaderBase)
 	{
-		m_ActualBaseAddress = LoaderBase;
+		m_ActualBaseAddress = loaderBase;
 	}
 
+	// Rescursively resolves imports when not loaded as a data file
 	if (!loadAsDataFile)
 	{
-		// Rescursively resolves imports when not loaded as a data file
-		LinkImage(TRUE);
+		LinkImage(isForKernel);
 	}
 
 	return GetMappedBase<HMODULE>();
 }
 
 
-VOID PEImage::AllocFlat(DWORD flProtect)
+VOID PEImage::AllocFlat()
 {
 	if (m_Mem) return;
 
@@ -421,7 +423,7 @@ VOID PEImage::AllocFlat(DWORD flProtect)
 
 	auto alloc = unique_virtalloc<>
 	{
-		VirtualAllocEx(GetCurrentProcess(), NULL, totalSize, MEM_RESERVE | MEM_COMMIT, flProtect)
+		VirtualAllocEx(GetCurrentProcess(), NULL, totalSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)
 	};
 	if(!alloc) ThrowLdrLastError(L"VirtualAllocEx");
 
