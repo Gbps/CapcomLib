@@ -8,27 +8,6 @@
 
 class PEImage;
 
-// For ordinal/address exports
-class PEFileExport
-{
-public:
-
-	PEFileExport() {}
-
-	PEFileExport(SIZE_T addressRVA, WORD ordinal = -1)
-	{
-		Address = addressRVA;
-		Ordinal = ordinal;
-	}
-
-	SIZE_T Address;
-	WORD Ordinal = -1;
-};
-
-
-// Hashmap of exports from a module
-using exports_hashmap = std::unordered_map<std::string, PEFileExport>;
-
 // Import list
 using imports_list = std::list<PEFileExport>;
 
