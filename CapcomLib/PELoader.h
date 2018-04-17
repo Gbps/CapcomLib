@@ -128,12 +128,15 @@ private:
 	std::shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(std::string ModuleName);
 
 	// Finds the export RVA of either a name or ordinal import
-	SIZE_T PEImage::FindImport(
-		std::string ImportName,
-		int Ordinal = -1);
+	PVOID PEImage::FindImport(
+		const char* ImportName,
+		int Ordinal);
 
-	// Loads all export entires for this module.
-	const exports_hashmap& PEImage::GetExports();
+	// Get actual mapped address of export by name
+	PVOID PEImage::GetExportByName(const char* ImportName);
+
+	// Get actual mapped address of export by ordinal
+	PVOID PEImage::GetExportByOrdinal(WORD InputOrdinal);
 
 private:
 	// Loaded and parsed PE File
@@ -147,9 +150,6 @@ private:
 
 	// Actual base address for linking modules in-place
 	PVOID m_ActualBaseAddress;
-
-	// All export entries resolved for this module
-	exports_hashmap m_Exports;
 
 	// Other modules loaded and mapped for the linking process only
 	static std::unordered_map<std::string, std::shared_ptr<PEImage>> MappedModules;

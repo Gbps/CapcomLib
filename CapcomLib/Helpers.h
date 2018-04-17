@@ -55,6 +55,8 @@ inline std::wstring multi2wide(const std::string& str, UINT codePage = CP_THREAD
 class Util
 {
 public:
+
+	// Prints a formatted message only during debug
 	inline static void DebugPrint(const char* fmt, ...)
 	{
 #if _DEBUG
@@ -63,5 +65,11 @@ public:
 		vprintf(fmt, args);
 		va_end(args);
 #endif
+	}
+
+	// Converts the string to lower case
+	inline static void ToLower(std::string& str)
+	{
+		std::transform(str.begin(), str.end(), str.begin(), [](UCHAR c) { return ::tolower(c); });
 	}
 };

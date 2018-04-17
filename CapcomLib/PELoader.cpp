@@ -98,8 +98,8 @@ void PEImage::GetSystemModules()
 		auto name = mod.FullPathName + mod.OffsetToFileName;
 
 		auto strName = string{ name };
-		std::transform(strName.begin(), strName.end(), strName.begin(), [](UCHAR c) { return ::tolower(c); });
-
+		Util::ToLower(strName);
+	
 		// Add it by value to the vector
 		PEImage::KernelModules[name] = ModuleInfo->Modules[i];
 	}
@@ -108,7 +108,7 @@ void PEImage::GetSystemModules()
 shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 {
 	// Lowercase name
-	std::transform(ModuleName.begin(), ModuleName.end(), ModuleName.begin(), [](UCHAR c) { return ::tolower(c); });
+	Util::ToLower(ModuleName);
 
 	// If it's been loaded already, use that one.
 	auto LoadedMod = PEImage::MappedModules.find(ModuleName);
@@ -159,63 +159,30 @@ shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 	return ModulePE;
 }
 
-SIZE_T PEImage::FindImport(
-	std::string ImportName,
+PVOID PEImage::FindImport(
+	const char* ImportName,
 	int Ordinal)
 {
-	std::transform(ImportName.begin(), ImportName.end(), ImportName.begin(), [](UCHAR c) { return ::tolower(c); });
-
-	// Load exports
-	const auto& exports = GetExports();
-
 	// Import by name
 	if (Ordinal == -1)
 	{
-		// Find an export name that matches the import
-		auto findExport = exports.find(ImportName);
-		if (findExport != exports.end())
-		{
-			// Return pointer offset from the image loaded in kernel already
-			return findExport->second.Address;
-		}
-		else
-		{
-			// Could not find import
-			return NULL;
-		}
+		return GetExportByName(ImportName);
 	}
 	// Import by ordinal
 	else
 	{
-		auto findExport = find_if(exports.begin(), exports.end(), [&Ordinal](const auto& e) { return e.second.Ordinal == Ordinal; });
-		if (findExport != exports.end())
-		{
-			// Return pointer offset from the image loaded in kernel already
-			return findExport->second.Address;
-		}
-		else
-		{
-			// Could not find import
-			return NULL;
-		}
+		return GetExportByOrdinal(Ordinal);
 	}
-	return NULL;
 }
 
-const exports_hashmap& PEImage::GetExports()
+PVOID PEImage::GetExportByName(const char* ImportName)
 {
-	// Already resolved
-	if (m_Exports.size() > 0)
-	{
-		return m_Exports;
-	}
-
 	const auto& ExportDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_EXPORT);
 
 	// No exports
 	if (ExportDDir.VirtualAddress == 0 || ExportDDir.Size == 0)
 	{
-		return m_Exports;
+		return NULL;
 	}
 
 	auto ExportDir = FromRVA<PIMAGE_EXPORT_DIRECTORY>(ExportDDir.VirtualAddress);
@@ -229,53 +196,83 @@ const exports_hashmap& PEImage::GetExports()
 	// List of ordinals accessed top down
 	auto NameOrdinalList = FromRVA<WORD*>(ExportDir->AddressOfNameOrdinals);
 
-	// Clear old entries if they exist
-	m_Exports.clear();
+	DWORD Low = 0, Mid = 0;
 
-	// Pre-allocate memory
-	m_Exports.reserve(ExportDir->NumberOfFunctions);
+	DWORD High = ExportDir->NumberOfNames - 1;
 
-	// Number of export by ordinal only
-	WORD i = 0;
-	for (; i < (ExportDir->NumberOfFunctions - ExportDir->NumberOfNames); i++)
+	// Binary search over names
+	while(High >= Low)
 	{
-		auto func = FuncList[i];
+		Mid = (Low + High) / 2;
 
-		// Extreme hack to make a valid std::string that won't interfere with the other strings
-		// C++11 wew
-		auto temp = std::string{ 2 };
-		*(WORD*)(&temp[0]) = i;
+		auto name = FromRVA<const char*>(NameList[Mid]);
 
-		auto funcAddr = (SIZE_T)((SIZE_T)GetActualBase() + func);
-		auto ordinal = i;
-		auto entry = PEFileExport{ funcAddr, ordinal };
-
-		m_Exports.emplace(make_pair(temp, entry));
+		// Compare import name
+		auto cmp = strcmp(ImportName, name);
+		if (cmp < 0)
+		{
+			High = Mid - 1;
+		}
+		else if (cmp > 0)
+		{
+			Low = Mid + 1;
+		}
+		else
+		{
+			break;
+		}
 	}
 
-	WORD ordinalBase = i+1;
+	// Was it found?
+	if (High < Low) return NULL;
 
-	// For each export, store address of function and ordinal
-	for (i = 0; i < ExportDir->NumberOfNames; i++)
+	auto nameOrdinal = NameOrdinalList[Mid];
+
+	// Validate ordinal
+	if (nameOrdinal >= ExportDir->NumberOfFunctions) return NULL;
+
+	auto func = FuncList[nameOrdinal];
+
+	// Use actual base, if mapping externally.
+	// Otherwise, use our local mapped base.
+	auto OutputAddress = (SIZE_T)((SIZE_T)GetActualBase() + func);
+
+	return (PVOID)OutputAddress;
+}
+
+PVOID PEImage::GetExportByOrdinal(WORD InputOrdinal)
+{
+	const auto& ExportDDir = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_EXPORT);
+
+	// No exports
+	if (ExportDDir.VirtualAddress == 0 || ExportDDir.Size == 0)
 	{
-		auto name = string{ FromRVA<const char*>(NameList[i]) };
-		auto nameOrdinal = NameOrdinalList[i];
-		auto func = FuncList[nameOrdinal];
-
-		// Lowercase string
-		std::transform(name.begin(), name.end(), name.begin(), [](UCHAR c) { return ::tolower(c); });
-		
-		// Use actual base, if mapping externally.
-		// Otherwise, use our local mapped base.
-
-		auto funcAddr = (SIZE_T)((SIZE_T)GetActualBase() + func);
-		auto ordinal = (WORD)(ordinalBase + i);
-		auto entry = PEFileExport{ funcAddr, ordinal };
-
-		m_Exports.emplace(make_pair(name, entry));
+		return NULL;
 	}
 
-	return m_Exports;
+	auto ExportDir = FromRVA<PIMAGE_EXPORT_DIRECTORY>(ExportDDir.VirtualAddress);
+
+	// List of function addresses accessed by ordinal
+	auto FuncList = FromRVA<DWORD*>(ExportDir->AddressOfFunctions);
+
+	// Function address of 
+	SIZE_T OutputAddress = 0;
+
+	auto targetOrd = InputOrdinal - ExportDir->Base;
+
+	if (targetOrd >= ExportDir->NumberOfFunctions)
+	{
+		ThrowLdrError("Import by ordinal exceeds number of functions");
+	}
+
+	// Ordinal goes directly into func list
+	auto func = FuncList[targetOrd];
+
+	// Use actual base, if mapping externally.
+	// Otherwise, use our local mapped base.
+	OutputAddress = (SIZE_T)((SIZE_T)GetActualBase() + func);
+	
+	return (PVOID)OutputAddress;
 }
 
 void PEImage::LinkImage(BOOL IsKernel)
@@ -340,23 +337,16 @@ void PEImage::LinkImage(BOOL IsKernel)
 				ImportName = FromRVA<IMAGE_IMPORT_BY_NAME*>(NameThunk->u1.AddressOfData)->Name;
 			}
 
-			if (IsKernel)
+			auto addr = (SIZE_T)TargetModule->FindImport(ImportName, ordinal);
+			if (!addr)
 			{
-				auto addr = TargetModule->FindImport(ImportName, ordinal);
-				if (!addr)
-				{
-					ThrowLdrError("Could not find import ('%s', %i) for module", ImportName, ordinal);
-				}
+				ThrowLdrError("Could not find import ('%s', %i) for module", ImportName, ordinal);
+			}
 				
-				// IAT
-				IATThunk->u1.Function = (SIZE_T)addr;
+			// IAT
+			IATThunk->u1.Function = (SIZE_T)addr;
 
-				Util::DebugPrint("\t%s => Addr: 0x%I64X, IAT: %p\n", ImportName, addr - (SIZE_T)TargetModule->GetActualBase(), &IATThunk->u1.Function);
-			}
-			else
-			{
-				throw exception("Not implemented");
-			}
+			Util::DebugPrint("\t%s => Addr: 0x%I64X, IAT: %p\n", ImportName, addr - (SIZE_T)TargetModule->GetActualBase(), &IATThunk->u1.Function);
 
 			if (NameThunk == IATThunk)
 			{
