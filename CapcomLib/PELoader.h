@@ -8,9 +8,6 @@
 
 class PEImage;
 
-// Import list
-using imports_list = std::list<PEFileExport>;
-
 // Pair of (KLoadedImageBase, PEImage)
 using loaded_kmodule_entry = std::pair<PVOID, std::shared_ptr<PEImage>>;
 
