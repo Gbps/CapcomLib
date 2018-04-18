@@ -11,9 +11,8 @@ class PEImage;
 // Pair of (KLoadedImageBase, PEImage)
 using loaded_kmodule_entry = std::pair<PVOID, std::shared_ptr<PEImage>>;
 
-// A very simple reflexive PE loader
-// Doesn't do anything fancy (.NET, SxS, AppCompat, or APISet)
-// Based off of some ReactOS code and reinterpreted for C++ :)
+// A simple PE loader, doesn't do anything fancy yet
+// Based off of some code snippets of other loaders here and there
 class PEImage
 {
 public:
@@ -77,7 +76,7 @@ private:
 	// Maps a PE file into memory as a loaded image. 
 	// Maps the entire image into a flat area of memory. 
 	// Does not create separate allocations for each section.
-	// Useful for driver modules because their sections are mapped flat with the PE
+	// Useful for driver modules because their sections are typically mapped flat with the PE
 	HMODULE MapFlat(BOOL isForKernel = TRUE, PVOID loaderBase = 0, BOOL loadAsDataFile = FALSE);
 
 	// Use VirtualAlloc to allocate memory to map the entire image

@@ -1,5 +1,5 @@
 #include <ntddk.h>
-
+#include <process.h>
 VOID Unload(IN PDRIVER_OBJECT DriverObject)
 {
 	DbgPrint("%s\n", "Driver unloaded.");
@@ -10,7 +10,7 @@ VOID Unload(IN PDRIVER_OBJECT DriverObject)
 NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING regPath)
 {
 	DbgPrint("%s\n", "Driver has been loaded.");
-	(*DriverObject).DriverUnload = Unload;
+	DriverObject;
 	regPath;
 	return (STATUS_SUCCESS);
 }

