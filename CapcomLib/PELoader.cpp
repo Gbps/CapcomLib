@@ -33,6 +33,32 @@ HMODULE PEImage::MapForKernel()
 	return MapFlat(TRUE, FALSE, FALSE);
 }
 
+VOID PEImage::GenerateSecurityCookie()
+{
+	const auto& LoadConfigDD = m_PE->GetDirectoryEntry(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);
+	if (LoadConfigDD.VirtualAddress == 0 || LoadConfigDD.Size == 0)
+	{
+		// No load options
+		return;
+	}
+
+	auto LoadConfigDir = FromRVA<PIMAGE_LOAD_CONFIG_DIRECTORY>(LoadConfigDD.VirtualAddress);
+
+	if (!LoadConfigDir->SecurityCookie)
+	{
+		// No security cookie
+		return;
+	}
+
+	// This actually gets relocated... interesting.
+	auto SecurityCookie = MakePointer<PSIZE_T>(LoadConfigDir->SecurityCookie);
+
+	// Do we really care about generating the correct 'secure' cookie here? I'm going to say 'no'.
+	auto RandomCookie = Util::RandomNumber();
+
+	*SecurityCookie = RandomCookie;
+}
+
 VOID PEImage::_MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size)
 {
 	auto targetEnd = TargetVA + Size;
@@ -398,7 +424,11 @@ HMODULE PEImage::MapFlat(BOOL isForKernel, PVOID loaderBase, BOOL loadAsDataFile
 	// Rescursively resolves imports when not loaded as a data file
 	if (!loadAsDataFile)
 	{
+		// Resolve imports, load dependencies, etc.
 		LinkImage(isForKernel);
+
+		// Required for some images
+		GenerateSecurityCookie();
 	}
 
 	return GetMappedBase<HMODULE>();

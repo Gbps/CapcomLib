@@ -24,7 +24,6 @@ PVOID NTAPI LoaderPayload(MmGetSystemRoutineFunc _MmGetSystemRoutineAddress)
 		__movsq((PDWORD64)drvmap, (PDWORD64)PayloadImage, (SIZE_T)(PayloadSize / sizeof(INT64)));
 
 		PayloadEntry = MakePointer<decltype(PayloadEntry)>(drvmap, PayloadEntryRVA);
-		__debugbreak();
 		PayloadEntry(NULL, NULL);
 	}
 	return nullptr;

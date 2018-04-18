@@ -29,5 +29,6 @@
 #include <codecvt>
 #include <list>
 #include <winternl.h>
+#include <random>
 
 #include "Win32Kernel.h"

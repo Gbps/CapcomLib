@@ -27,6 +27,9 @@ public:
 	// Maps and links a module in preparation to be copied directly to the kernel
 	HMODULE MapForKernel();
 
+	// Generates a random security cookie for stack overflow checks. Required by some drivers for operation.
+	VOID GenerateSecurityCookie();
+
 	// Gets a pointer to the end of mapped memory
 	template<typename TargetPtr>
 	auto GetMappedEnd() const

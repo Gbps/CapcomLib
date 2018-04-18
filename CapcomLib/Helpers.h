@@ -18,6 +18,14 @@ TargetType MakePointer(void* anyptr)
 	return reinterpret_cast<TargetType>(anyptr);
 }
 
+// Pointer type conversion with no offset
+template<typename TargetType>
+TargetType MakePointer(SIZE_T anyptr)
+{
+	return reinterpret_cast<TargetType>(anyptr);
+}
+
+
 // Pointer type conversion with byte offset
 template<typename TargetType>
 TargetType MakePointer(void* anyptr, SIZE_T offset)
@@ -72,4 +80,14 @@ public:
 	{
 		std::transform(str.begin(), str.end(), str.begin(), [](UCHAR c) { return ::tolower(c); });
 	}
+
+	// Generate a random size_t integer from C++ stl, not secure
+	inline static SIZE_T RandomNumber()
+	{
+		return random_gen();
+	}
+private:
+	
+	// Not secure
+	inline static std::mt19937_64 random_gen = std::mt19937_64{ std::random_device{}() };
 };
