@@ -1,8 +1,7 @@
 #include "stdafx.h"
-#include "Helpers.h"
+#include "Util.h"
 #include "PELoader.h"
-#include "Helpers.h"
-#include "ExceptionHelpers.h"
+#include "Util.h"
 
 using namespace std;
 
@@ -54,7 +53,7 @@ VOID PEImage::GenerateSecurityCookie()
 	auto SecurityCookie = MakePointer<PSIZE_T>(LoadConfigDir->SecurityCookie);
 
 	// Do we really care about generating the correct 'secure' cookie here? I'm going to say 'no'.
-	auto RandomCookie = Util::RandomNumber();
+	auto RandomCookie = Util::Random::Generate64();
 
 	*SecurityCookie = RandomCookie;
 }
@@ -65,12 +64,12 @@ VOID PEImage::_MapSafeCopy(PBYTE TargetVA, PBYTE SourceVA, SIZE_T Size)
 
 	if (TargetVA > GetMappedEnd<PBYTE>() || TargetVA < GetMappedBase<PBYTE>())
 	{
-		ThrowLdrError("TargetVA is outside mapped section!");
+		Util::Exception::Throw("TargetVA is outside mapped section!");
 	}
 
 	if (targetEnd > GetMappedEnd<PBYTE>() || targetEnd < TargetVA)
 	{
-		ThrowLdrError("SourceVA is outside of mapped section!");
+		Util::Exception::Throw("SourceVA is outside of mapped section!");
 	}
 
 	RtlCopyMemory(TargetVA, SourceVA, Size);
@@ -87,7 +86,7 @@ void PEImage::GetSystemModules()
 	// Try a size and then increase if necessary
 	auto initialSize = 0x10000;
 	auto actualSize = ULONG{};
-	auto ModuleInfo = unique_virtalloc<_RTL_PROCESS_MODULES>
+	auto ModuleInfo = Util::Win32::unique_virtalloc<_RTL_PROCESS_MODULES>
 	{
 		reinterpret_cast<PRTL_PROCESS_MODULES>
 		(
@@ -95,20 +94,20 @@ void PEImage::GetSystemModules()
 		)
 	};
 
-	if (!ModuleInfo) ThrowLdrLastError(L"VirtualAlloc");
+	if (!ModuleInfo) Util::Exception::ThrowLastError(L"VirtualAlloc");
 
 	auto res = NtQuerySystemInformation(SystemModuleInformation, ModuleInfo.get(), initialSize, &actualSize);
 	if (res == STATUS_INFO_LENGTH_MISMATCH)
 	{
 		// Release old ModuleInfo and allocate one with actual size
-		ModuleInfo = unique_virtalloc<_RTL_PROCESS_MODULES>
+		ModuleInfo = Util::Win32::unique_virtalloc<_RTL_PROCESS_MODULES>
 		{
 			reinterpret_cast<PRTL_PROCESS_MODULES>
 			(
 				VirtualAlloc(NULL, actualSize, MEM_COMMIT, PAGE_READWRITE)
 			)
 		};
-		if (!ModuleInfo) ThrowLdrLastError(L"VirtualAlloc");
+		if (!ModuleInfo) Util::Exception::ThrowLastError(L"VirtualAlloc");
 
 		// Query again
 		res = NtQuerySystemInformation(SystemModuleInformation, ModuleInfo.get(), initialSize, &actualSize);
@@ -124,7 +123,7 @@ void PEImage::GetSystemModules()
 		auto name = mod.FullPathName + mod.OffsetToFileName;
 
 		auto strName = string{ name };
-		Util::ToLower(strName);
+		Util::String::ToLower(strName);
 	
 		// Add it by value to the vector
 		PEImage::KernelModules[name] = ModuleInfo->Modules[i];
@@ -134,13 +133,13 @@ void PEImage::GetSystemModules()
 shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 {
 	// Lowercase name
-	Util::ToLower(ModuleName);
+	Util::String::ToLower(ModuleName);
 
 	// If it's been loaded already, use that one.
 	auto LoadedMod = PEImage::MappedModules.find(ModuleName);
 	if (LoadedMod != PEImage::MappedModules.end())
 	{
-		Util::DebugPrint("[CACHED]\n");
+		Util::Debug::Print("[CACHED]\n");
 		return shared_ptr<PEImage>(LoadedMod->second);
 	}
 
@@ -148,7 +147,7 @@ shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 	auto SysMod = PEImage::KernelModules.find(ModuleName);
 	if (SysMod == PEImage::KernelModules.end())
 	{
-		ThrowLdrError("Driver attempted to import from an unloaded kernel module '%s'. "
+		Util::Exception::Throw("Driver attempted to import from an unloaded kernel module '%s'. "
 			"Loading kernel imports at runtime is not supported!",
 			ModuleName.c_str());
 	}
@@ -162,15 +161,15 @@ shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 	// Then convert to wide character -> L'\\?\C:\Windows\System32\ntoskrnl.exe'
 	auto SysModule = SysMod->second;
 	auto FullNameNative = SysModule.FullPathName;
-	auto wFullNameNative = multi2wide(FullNameNative);
+	auto wFullNameNative = Util::String::ToUnicode(FullNameNative);
 
-	auto FullNameNtPath = NtNativeToWin32(wFullNameNative);
+	auto FullNameNtPath = Util::Win32::NtNativeToWin32(wFullNameNative);
 	if (FullNameNtPath.length() == 0)
 	{
-		ThrowLdrError("Failed to get full path for '%s'", FullNameNative);
+		Util::Exception::Throw("Failed to get full path for '%s'", FullNameNative);
 	}
 
-	auto wFullName = multi2wide(FullNameNtPath);
+	auto wFullName = Util::String::ToUnicode(FullNameNtPath);
 
 	// Load PE from disk
 	auto ModulePE = make_shared<PEImage>( wFullName );
@@ -180,7 +179,7 @@ shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 	//                                     we want to resolve to the kernel address, not our locally mapped one
 	auto res = ModulePE->MapFlat(TRUE, SysModule.ImageBase, TRUE);
 
-	Util::DebugPrint("[MAPPED %p => %p]\n", SysModule.ImageBase, res);
+	Util::Debug::Print("[MAPPED %p => %p]\n", SysModule.ImageBase, res);
 
 	return ModulePE;
 }
@@ -288,7 +287,7 @@ PVOID PEImage::GetExportByOrdinal(WORD InputOrdinal)
 
 	if (targetOrd >= ExportDir->NumberOfFunctions)
 	{
-		ThrowLdrError("Import by ordinal exceeds number of functions");
+		Util::Exception::Throw("Import by ordinal exceeds number of functions");
 	}
 
 	// Ordinal goes directly into func list
@@ -323,7 +322,7 @@ void PEImage::LinkImage(BOOL IsKernel)
 		shared_ptr<PEImage> TargetModule;
 		if (IsKernel)
 		{
-			Util::DebugPrint("Import from %s... ", ModuleName);
+			Util::Debug::Print("Import from %s... ", ModuleName);
 			TargetModule = FindOrMapKernelDependency(ModuleName);
 		}
 		else
@@ -366,13 +365,13 @@ void PEImage::LinkImage(BOOL IsKernel)
 			auto addr = (SIZE_T)TargetModule->FindImport(ImportName, ordinal);
 			if (!addr)
 			{
-				ThrowLdrError("Could not find import ('%s', %i) for module", ImportName, ordinal);
+				Util::Exception::Throw("Could not find import ('%s', %i) for module", ImportName, ordinal);
 			}
 				
 			// IAT
 			IATThunk->u1.Function = (SIZE_T)addr;
 
-			Util::DebugPrint("\t%s => Addr: 0x%I64X, IAT: %p\n", ImportName, addr - (SIZE_T)TargetModule->GetActualBase(), &IATThunk->u1.Function);
+			Util::Debug::Print("\t%s => Addr: 0x%I64X, IAT: %p\n", ImportName, addr - (SIZE_T)TargetModule->GetActualBase(), &IATThunk->u1.Function);
 
 			if (NameThunk == IATThunk)
 			{
@@ -441,11 +440,11 @@ VOID PEImage::AllocFlat()
 
 	auto totalSize = m_PE->GetTotalMappedSize();
 
-	auto alloc = unique_virtalloc<>
+	auto alloc = Util::Win32::unique_virtalloc<>
 	{
 		VirtualAllocEx(GetCurrentProcess(), NULL, totalSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)
 	};
-	if(!alloc) ThrowLdrLastError(L"VirtualAllocEx");
+	if(!alloc) Util::Exception::ThrowLastError(L"VirtualAllocEx");
 
 	m_Mem = move(alloc);
 	m_MemSize = totalSize;
@@ -496,7 +495,7 @@ auto PEImage::ProcessRelocationBlocks(PWORD BlocksAddress, PULONG RelocBaseAddre
 			break;
 
 		default:
-			ThrowLdrError("Given relocation type was not supported (0x%llX)", Type);
+			Util::Exception::Throw("Given relocation type was not supported (0x%llX)", Type);
 			break;
 		}
 
@@ -538,7 +537,7 @@ VOID PEImage::DoRelocateImage()
 
 		if (RelocDir >= RelocEnd)
 		{
-			ThrowLdrError("Base relocation entry table was 0 or negative size!");
+			Util::Exception::Throw("Base relocation entry table was 0 or negative size!");
 		}
 
 		// Iterate through each base directory, then fix each block list inside the base directory

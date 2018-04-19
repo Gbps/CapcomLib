@@ -1,8 +1,8 @@
 #pragma once
 
 #include "stdafx.h"
-#include "Win32Helpers.h"
-#include "Helpers.h"
+#include "Win32Util.h"
+#include "Util.h"
 #include "PEFile.h"
 #include "Win32Kernel.h"
 
@@ -51,7 +51,7 @@ public:
 		auto ptr = MakePointer<TargetPtr>(m_Mem.get(), Offset);
 		if (ptr >= GetMappedEnd<TargetPtr>() || ptr < m_Mem.get())
 		{
-			ThrowLdrError("FromRVA: Invalid mapped address");
+			Util::Exception::Throw("FromRVA: Invalid mapped address");
 		}
 		return ptr;
 	}
@@ -121,7 +121,7 @@ private:
 	std::unique_ptr<PEFile> m_PE;
 
 	// Memory of the manually mapped image
-	unique_virtalloc<> m_Mem;
+	Util::Win32::unique_virtalloc<> m_Mem;
 
 	// Size of manually memory mapped image
 	SIZE_T m_MemSize;

@@ -31,18 +31,27 @@ PVOID NTAPI LoaderPayload(MmGetSystemRoutineFunc _MmGetSystemRoutineAddress)
 
 int main()
 {
-	auto image = make_unique<PEImage>(L"TestDriver.sys");
-	PayloadImage = image->MapForKernel();
-	PayloadSize = image->GetMappedSize();
-	PayloadEntryRVA = image->GetEntryPointRVA();
+	try
+	{
+		auto image = make_unique<PEImage>(L"TestDriver.sys");
+		PayloadImage = image->MapForKernel();
+		PayloadSize = image->GetMappedSize();
+		PayloadEntryRVA = image->GetEntryPointRVA();
 
-	Util::DebugPrint("Mapped Capcom.sys to: %p\n", PayloadImage);
-	Util::DebugPrint("EntryPointRVA: %p\n", PayloadEntry);
+		Util::Debug::Print("Mapped Capcom.sys to: %p\n", PayloadImage);
+		Util::Debug::Print("EntryPointRVA: %p\n", PayloadEntry);
 
-	DriverLoader loader;
-	loader.LoadDriverFromFile(L".\\Capcom.sys");
-	loader.LoadCapcomService();
-	loader.ExecIoCtlWithTrampoline(LoaderPayload);
+		DriverLoader loader;
+		auto fullpath = Util::Path::RelativeToAbsolute(L".\\Capcom.sys");
+		Util::Debug::Print("Loading Driver: \"%ws\"\n", fullpath.c_str());
+		loader.CreateServiceFromFile(fullpath);
+		loader.ExecIoCtlWithTrampoline(LoaderPayload);
+	}
+	catch (std::exception e)
+	{
+		Util::Debug::Print("[EXCEPTION] %s\n", e.what());
+	}
+	
 	
 	getchar();
     return 0;

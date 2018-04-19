@@ -1,9 +1,7 @@
 #include "stdafx.h"
 #include "PEFile.h"
-#include "Win32Helpers.h"
-#include "Helpers.h"
-#include "ExceptionHelpers.h"
-
+#include "Win32Util.h"
+#include "Util.h"
 using namespace std;
 
 
@@ -20,7 +18,7 @@ PEFile::PEFile(PVOID PEFileMemoryBase, SIZE_T PEFileMemorySize)
 	ParsePEHeaders();
 }
 
-PEFile::PEFile(unique_module Module)
+PEFile::PEFile(Util::Win32::unique_module Module)
 {
 	auto hModule = (HMODULE) Module.get();
 	m_LoadedModule = move(Module);
@@ -44,30 +42,30 @@ PEFile::~PEFile()
 VOID PEFile::LoadFromFile(const wstring& Filename)
 {
 	// Open file readonly
-	auto hFile = unique_handle
+	auto hFile = Util::Win32::unique_handle
 	{
 		CreateFile(Filename.c_str(), FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 		NULL, OPEN_EXISTING, 0, NULL)
 	};
-	ThrowLdrLastError(L"CreateFile", hFile.get());
+	if (hFile.get() <= 0LL) Util::Exception::ThrowLastError("CreateFile");
 
 	// Get size of the image file
 	auto dwFileSizeHigh = DWORD{};
 	auto dwFileSizeLow = GetFileSize(hFile.get(), &dwFileSizeHigh);
-	if (dwFileSizeLow == INVALID_FILE_SIZE) ThrowLdrLastError(L"GetFileSize");
+	if (dwFileSizeLow == INVALID_FILE_SIZE) Util::Exception::ThrowLastError("GetFileSize");
 	
 	auto dwFileSize = DWORD64{ dwFileSizeHigh | dwFileSizeLow };
 
 	// Create the file mapping (NOTE: Doing this manually, not as SEC_IMAGE, requires moving the sections manually)
-	auto hMap = unique_handle
+	auto hMap = Util::Win32::unique_handle
 	{
 		CreateFileMapping(hFile.get(), NULL, PAGE_READONLY, 0, 0, NULL)
 	};
-	ThrowLdrLastError(L"CreateFileMapping", hMap.get());
+	if (hMap.get() <= 0LL) Util::Exception::ThrowLastError("CreateFileMapping");
 
 	// Create the view of the entire file
 	auto PEFile = MapViewOfFile(hMap.get(), FILE_MAP_READ, 0, 0, 0);
-	ThrowLdrLastError(L"MapViewOfFile", PEFile);
+	if (PEFile <= 0LL) Util::Exception::ThrowLastError("MapViewOfFile");
 
 	// Commit the handles
 	m_FileHandle = move(hFile);
@@ -84,13 +82,13 @@ VOID PEFile::LoadFromFile(const wstring& Filename)
 VOID PEFile::ParsePEHeaders()
 {
 	// Ensure valid base address (i.e. module has been loaded into memory)
-	if (!m_FileMemoryBase) ThrowFmtError("No module loaded");
+	if (!m_FileMemoryBase) Util::Exception::Throw("No module loaded");
 
 	// DOS headers are at the very beginning of the PE file. Check signature!
 	auto DosHeader = MakePointer<PIMAGE_DOS_HEADER>(m_FileMemoryBase);
 	if (DosHeader->e_magic != IMAGE_DOS_SIGNATURE)
 	{
-		ThrowLdrError("Invalid image DOS signature");
+		Util::Exception::Throw("Invalid image DOS signature");
 	}
 
 	// DOS headers give offset to NT headers
@@ -100,7 +98,7 @@ VOID PEFile::ParsePEHeaders()
 	auto NtHeaders = MakePointer<PIMAGE_NT_HEADERS64>(DosHeader, NtHeaderOffset);
 	if (NtHeaders->Signature != IMAGE_NT_SIGNATURE)
 	{
-		ThrowLdrError("Invalid image NT signature");
+		Util::Exception::Throw("Invalid image NT signature");
 	}
 
 
@@ -141,7 +139,7 @@ VOID PEFile::ParsePEHeaders()
 	}
 	else
 	{
-		ThrowLdrError("Invalid OptionalHeader.Magic signature");
+		Util::Exception::Throw("Invalid OptionalHeader.Magic signature");
 	}
 
 	// Determine if it's an EXE or DLL
@@ -158,7 +156,7 @@ VOID PEFile::ParsePEHeaders()
 
 	for (size_t i = 0; i < numSections; i++, pSectionHeaders++)
 	{
-		if (pSectionHeaders >= m_FileMemoryEnd) ThrowLdrError("Sections extend past end of file");
+		if (pSectionHeaders >= m_FileMemoryEnd) Util::Exception::Throw("Sections extend past end of file");
 		m_MemSections.push_back(*pSectionHeaders);
 	}
 }

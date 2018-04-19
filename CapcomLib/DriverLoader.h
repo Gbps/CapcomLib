@@ -45,26 +45,19 @@ typedef struct _TRAMPPAGE
 class DriverLoader
 {
 public:
-	DriverLoader();
 
-	/// Loads the capcom driver in a new service
-	void LoadCapcomService();
+	// Create registry entries and attempt to load a driver from the given path
+	void DriverLoader::CreateServiceFromFile(const std::wstring& DriverPath);
 
-	/// Executes the payload using the vulnerable Capcom.sys driver
+	// Executes the payload using the vulnerable Capcom.sys driver
 	void ExecIoCtlWithTrampoline(CAPCOM_USER_FUNC targetFunc);
 
-	/// Reads all bytes of a sys file into a std::string
-	void LoadDriverFromFile(const wstring & filename);
-
-	/// Keep the reference to the file alive
+	// Keep the reference to the file alive
 	static string TargetDriverPE;
+
 private:
 
-
-	/// Returns the location of the driver relative to the current directory
-	wstring GetCapcomDriverPath();
-
-	/// Generates a payload which executes the target function
+	// Generates a payload which executes the target function
 	PPAYLOADTRAMP AllocPayloadTrampoline(CAPCOM_USER_FUNC targetFunc);
 
 	

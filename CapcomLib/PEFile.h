@@ -1,8 +1,7 @@
 #pragma once
 #include "stdafx.h"
-#include "Win32Helpers.h"
-#include "ExceptionHelpers.h"
-#include "Helpers.h"
+#include "Win32Util.h"
+#include "Util.h"
 
 // Describes a raw PE file in mapped into memory
 class PEFile
@@ -16,7 +15,7 @@ public:
 	PEFile(PVOID PEFileMemoryBase, SIZE_T PEFileMemorySize);
 
 	// Load a PEFile from HMODULE
-	PEFile(unique_module Module);
+	PEFile(Util::Win32::unique_module Module);
 
 	// Get the total size of the image after mapping
 	SIZE_T GetTotalMappedSize();
@@ -37,7 +36,7 @@ public:
 		auto ptr = MakePointer<TargetPtr>(m_FileMemoryBase, Offset);
 		if (ptr >= m_FileMemoryEnd || ptr < m_FileMemoryBase)
 		{
-			ThrowLdrError("OffsetFromBase: Invalid file offset");
+			Util::Exception::Throw("OffsetFromBase: Invalid file offset");
 		}
 		return ptr;
 	}
@@ -99,13 +98,13 @@ private:
 
 private:
 	// Handle to the underlying PE file
-	unique_handle m_FileHandle;
+	Util::Win32::unique_handle m_FileHandle;
 
 	// Handle to the underlying PE file mapping
-	unique_handle m_FileMapping;
+	Util::Win32::unique_handle m_FileMapping;
 
 	// If the module was loaded by LoadLibrary
-	unique_module m_LoadedModule;
+	Util::Win32::unique_module m_LoadedModule;
 
 	// Pointer to the base of the PE file (not image mapped!) in memory
 	PVOID m_FileMemoryBase;
