@@ -52,7 +52,7 @@ void CapcomDriver::Exploit()
 	PayloadEntryRVA = Options.Image->GetEntryPointRVA();
 
 	Util::Debug::Print("Mapped Capcom.sys to: %p\n", PayloadImage);
-	Util::Debug::Print("EntryPointRVA: %p\n", PayloadEntry);
+	Util::Debug::Print("EntryPointRVA: %p\n", PayloadEntryRVA);
 }
 
 const std::wstring & CapcomDriver::GetVulnDriverName()
