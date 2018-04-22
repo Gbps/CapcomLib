@@ -167,3 +167,5 @@ namespace Util
 	};
 
 };
+
+#include "Win32Util.h"

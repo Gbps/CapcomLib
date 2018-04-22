@@ -30,5 +30,6 @@
 #include <list>
 #include <winternl.h>
 #include <random>
+#include <type_traits>
 
 #include "Win32Kernel.h"
