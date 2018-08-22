@@ -132,6 +132,8 @@ void PEImage::GetSystemModules()
 
 shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 {
+	//keep uppercase name for find() method in unordered map
+	auto ModuleNameCorrect = ModuleName;
 	// Lowercase name
 	Util::String::ToLower(ModuleName);
 
@@ -144,7 +146,7 @@ shared_ptr<PEImage> PEImage::FindOrMapKernelDependency(string ModuleName)
 	}
 
 	// Find the modules from NTQSI output
-	auto SysMod = PEImage::KernelModules.find(ModuleName);
+	auto SysMod = PEImage::KernelModules.find(ModuleNameCorrect);
 	if (SysMod == PEImage::KernelModules.end())
 	{
 		Util::Exception::Throw("Driver attempted to import from an unloaded kernel module '%s'. "
